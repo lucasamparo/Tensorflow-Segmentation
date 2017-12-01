@@ -1,24 +1,17 @@
-# Image segmentation
+# Remoção de Expressões Faciais
 
-This project implements neural network for semantic segmentation in [Tensorflow](https://github.com/tensorflow/tensorflow/) . 
+Este projeto tem como objetivo a remoção de expressões faciais em imagens de profundidade, com redes neurais baseadas em [Tensorflow](https://github.com/tensorflow/tensorflow/), no modelo de rede desenvolvido por [Arahusky](https://github.com/arahusky/Tensorflow-Segmentation) e outros artifícios. 
 
-# Project overview
+# Visão Geral
 
-The main file of the project is *convolutional_autoencoder.py*, which contains code for dataset processing (class Dataset), model definition (class Model) and also code for training. 
+O principal arquivo do projeto é o *convworking.py*, que contém toda a definição da rede a ser treinada.
+Utilizamos também a classe *layer.py*, que implementa as classes *conv2d.py* e *max_pool_2d.py*, criadas por Arahusky em seu projeto.
+O dataset utilizado está contido na pasta *data128_128*, separado em treino, validação e teste (sem uma respectiva proporção).
 
-To abstract layers in the model, we created *layer.py* class interface. This class has currently two implementations: *conv2d.py* and *max_pool_2d.py*.
+# Arquitetura do Modelo
 
-To infer on the trained model, have a look at *infer.py* file.
-
-Finally, there are several folders:
-- data* contain preprocessed dataset (Please note that current model implementation is supposed to work with at least 128x128 images.)
-- imgaug contains code for data augmentation (https://github.com/aleju/imgaug)
-- noteboks contains some interesting image segmentation ipython notebooks 
-
-
-# Model architecture
-
-## General overview 
+## Visão Geral
+TODO
 There are many neural network architectures for semantic image segmentation (to have some basic overview, you can read project_summary.pdf), but most of them use convolutional encoder-decoder architecture.
 
 ![](http://mi.eng.cam.ac.uk/projects/segnet/images/segnet.png)

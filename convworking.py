@@ -16,13 +16,16 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import gen_nn_ops
+from PIL import Image
 
 from conv2d import Conv2d
 from max_pool_2d import MaxPool2d
 import ssim
+import msssim
 import datetime
 import io
 import utils
+import gc
 
 np.set_printoptions(threshold=np.nan)
 
@@ -84,7 +87,7 @@ class Network:
             else:
                 net = layer.create_layer_reversed(net, prev_layer=self.layers[layer.name])
 
-        # Reconstruct part
+        '''# Reconstruct part
         #Input
         #net2 = tf.concat([self.segmentation_result, self.inputs], axis=3)
         net2 = self.segmentation_result
@@ -102,25 +105,26 @@ class Network:
                 prev = old
             else:
                 prev = tf.concat([prev, old], axis=3)
-        self.final_result = net2
+        self.final_result = net2'''
+        self.final_result = self.segmentation_result
 
         # MSE loss
         # Expression Removal with MSE loss function
         mean = tf.reduce_mean(tf.square(self.segmentation_result - self.targets))
-        norm = tf.constant(1.0/(self.IMAGE_WIDTH*self.IMAGE_HEIGHT*255), dtype=tf.float32, shape=mean.shape, name="MSE_Normalization")
-        #self.cost1 = tf.multiply(mean, norm, name="normalize_cost")
         self.cost1 = mean;
         # Reconstruct with MS_SSIM loss function
         #self.cost2 = 1 - ssim.tf_ms_ssim(self.final_result, self.targets)
-        self.cost2 = tf.reduce_mean(tf.square(self.final_result - self.targets))
-        self.cost = 50*self.cost1 + self.cost2
-        self.train_op = tf.train.AdamOptimizer(learning_rate=0.001).minimize(self.cost1)
-        self.train_op2 = tf.train.AdamOptimizer(learning_rate=0.001).minimize(self.cost2)
+        #self.cost2 = tf.reduce_mean(tf.square(self.final_result - self.targets))
+        #self.cost = 50*self.cost1 + self.cost2
+        self.train_op = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.01, 1, 10000, 0.0001)).minimize(self.cost1)
+        #self.train_op2 = tf.train.AdamOptimizer(learning_rate=0.001).minimize(self.cost2)
         with tf.name_scope('accuracy'):
             # argmax_probs = tf.round(self.segmentation_result)  # 0x1
             # correct_pred = tf.cast(tf.equal(argmax_probs, self.targets), tf.float32)
-            correct_pred = tf.square(self.final_result - self.targets)
-            self.accuracy = tf.reduce_mean(correct_pred)
+            correct_pred = tf.py_func(msssim.MultiScaleSSIM, [self.final_result, self.targets], tf.float32)
+            #self.accuracy = tf.reduce_mean(correct_pred)
+            self.accuracy = correct_pred
+            self.mse = tf.reduce_mean(tf.square(self.final_result - self.targets))
 
             tf.summary.scalar('accuracy', self.accuracy)
 
@@ -136,21 +140,21 @@ class Dataset:
         validation_files = os.listdir(os.path.join(folder, 'inputs/valid'))
         test_files = os.listdir(os.path.join(folder, 'inputs/test'))
 
-        '''train_files, validation_files, test_files = self.train_valid_test_split(
-            os.listdir(os.path.join(folder, 'inputs')))'''
-
-        self.train_inputs, self.train_targets = self.file_paths_to_images(folder, train_files)
-        self.test_inputs, self.test_targets = self.file_paths_to_images(folder, test_files, mode="test")
+        self.train_inputs, self.train_paths, self.train_targets = self.file_paths_to_images(folder, train_files)
+        self.test_inputs, self.test_paths, self.test_targets = self.file_paths_to_images(folder, test_files, mode="test")
 
         self.pointer = 0
 
     def file_paths_to_images(self, folder, files_list, mode="train"):
         inputs = []
         targets = []
+        in_path = []
+        test_path = []
 
         for file in files_list:
             input_image = os.path.join(folder, 'inputs/{}'.format(mode), file)
             target_image = os.path.join(folder, 'targets/{}'.format(mode), file)
+            in_path.append(os.path.join('inputs/{}'.format(mode), file))
 
             test_image = cv2.imread(input_image, 0)
             test_image = cv2.resize(test_image, (128, 128))
@@ -160,7 +164,7 @@ class Dataset:
             target_image = cv2.resize(target_image, (128, 128))
             targets.append(target_image)
 
-        return inputs, targets
+        return inputs, in_path, targets
 
     def train_valid_test_split(self, X, ratio=None):
         if ratio is None:
@@ -179,6 +183,7 @@ class Dataset:
     def reset_batch_pointer(self):
         permutation = np.random.permutation(len(self.train_inputs))
         self.train_inputs = [self.train_inputs[i] for i in permutation]
+        self.train_paths = [self.train_inputs[i] for i in permutation]
         self.train_targets = [self.train_targets[i] for i in permutation]
 
         self.pointer = 0
@@ -194,6 +199,9 @@ class Dataset:
         self.pointer += self.batch_size
 
         return np.array(inputs, dtype=np.uint8), np.array(targets, dtype=np.uint8)
+        
+    def all_train_batches(self):
+        return np.array(self.test_inputs, dtype=np.uint8), self.test_paths, len(self.test_inputs)//self.batch_size
 
     @property
     def test_set(self):
@@ -208,7 +216,10 @@ def draw_results(test_inputs, test_targets, test_segmentation, test_final, test_
         axs[0][example_i].imshow(test_inputs[example_i], cmap='gray')
         axs[1][example_i].imshow(test_targets[example_i].astype(np.float32), cmap='gray')
         axs[2][example_i].imshow(np.reshape(test_segmentation[example_i], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH]),cmap='gray')
-        axs[3][example_i].imshow(np.reshape(test_final[example_i], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH]),cmap='gray')
+        final = np.reshape(test_final[example_i], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
+        blur = cv2.bilateralFilter(final, 9, 75, 75)
+        blurred = np.array([0 if x < 0.1 else x for x in blur.flatten()])
+        axs[3][example_i].imshow(np.reshape(blurred, [network.IMAGE_HEIGHT, network.IMAGE_WIDTH]),cmap='gray')
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
@@ -219,11 +230,12 @@ def draw_results(test_inputs, test_targets, test_segmentation, test_final, test_
         os.makedirs(IMAGE_PLOT_DIR)
 
     plt.savefig('{}/figure{}.jpg'.format(IMAGE_PLOT_DIR, batch_num))
+    plt.close('all')
     return buf
 
 
 def train():
-    BATCH_SIZE = 64
+    BATCH_SIZE = 256
 
     network = Network()
 
@@ -245,8 +257,9 @@ def train():
         saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
 
         test_accuracies = []
+        test_mse = []
         # Fit all training data
-        n_epochs = 1000
+        n_epochs = 3000
         global_start = time.time()
         for epoch_i in range(n_epochs):
             dataset.reset_batch_pointer()
@@ -266,13 +279,10 @@ def train():
                 cost1, stage1, _ = sess.run([network.cost1, network.segmentation_result, network.train_op],
                                    feed_dict={network.inputs: batch_inputs, network.targets: batch_targets,
                                               network.is_training: True})
-                cost2, _ = sess.run([network.cost2, network.train_op2],
-                                   feed_dict={network.inputs: batch_inputs, network.targets: batch_targets,
-                                              network.is_training: True})
                 end = time.time()
-                print('{}/{}, epoch: {}, mse: {}+{}, batch time: {}'.format(batch_num,
+                print('{}/{}, epoch: {}, mse: {}, batch time: {}'.format(batch_num,
                                                                           n_epochs * dataset.num_batches_in_epoch(),
-                                                                          epoch_i, cost1, cost2, round(end - start,5)))
+                                                                          epoch_i, cost1, round(end - start,5)))
 
                 if batch_num % 100 == 0 or batch_num == n_epochs * dataset.num_batches_in_epoch():
                     test_inputs, test_targets = dataset.test_set
@@ -282,7 +292,7 @@ def train():
                     test_targets = np.reshape(test_targets, (-1, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
                     test_inputs = np.multiply(test_inputs, 1.0 / 255)
 
-                    summary, test_accuracy = sess.run([network.summaries, network.accuracy],
+                    summary, test_accuracy, mse = sess.run([network.summaries, network.accuracy, network.mse],
                                                       feed_dict={network.inputs: test_inputs,
                                                                  network.targets: test_targets,
                                                                  network.is_training: False})
@@ -291,10 +301,38 @@ def train():
 
                     print('Step {}, test accuracy: {}'.format(batch_num, test_accuracy))
                     test_accuracies.append((test_accuracy, batch_num))
+                    test_mse.append((mse, batch_num))
                     print("Accuracies in time: ", [test_accuracies[x][0] for x in range(len(test_accuracies))])
-                    max_acc = min(test_accuracies)
+                    print("MSE in time: ", [test_mse[x][0] for x in range(len(test_mse))])
+                    max_acc = max(test_accuracies)
+                    min_mse = min(test_mse)
                     print("Best accuracy: {} in batch {}".format(max_acc[0], max_acc[1]))
                     print("Total time: {}".format(time.time() - global_start))
+                    
+                    if mse <= min_mse[0] and mse < 5000:
+                        train_dataset, paths, tam = dataset.all_train_batches()
+                        for i in range(tam+1):
+                            batch = train_dataset[BATCH_SIZE*i:BATCH_SIZE*(i+1)]
+                            p = paths[BATCH_SIZE*i:BATCH_SIZE*(i+1)]
+                            batch = np.multiply(batch, 1.0/255)
+                            image = sess.run([network.final_result], feed_dict={network.inputs: np.reshape(batch ,[-1, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1])})
+                            image = np.array(image[0])
+                            for j in range(image.shape[0]):
+                                save_image = np.resize(image[j], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
+                                fig = plt.figure(frameon=False)
+                                fig.set_size_inches(network.IMAGE_HEIGHT, network.IMAGE_WIDTH)
+                                ax = plt.Axes(fig, [0., 0., 1., 1.])
+                                ax.set_axis_off()
+                                fig.add_axes(ax)
+                                ax.imshow(save_image, cmap="gray")
+                                fig.savefig("result/{}".format(p[j]))
+                                print("salvou {}".format(p[j]))
+                                plt.close(fig)
+                                del fig
+                                gc.collect()
+                        print("All test_set exported")
+                                
+
 
                     # Plot example reconstructions
                     n_examples = 12
@@ -320,7 +358,7 @@ def train():
                     image_summary = sess.run(image_summary_op)
                     summary_writer.add_summary(image_summary)
 
-                    if test_accuracy < max_acc[0]:
+                    if test_accuracy > max_acc[0]:
                         checkpoint_path = os.path.join('save', network.description, timestamp, 'model.ckpt')
                         saver.save(sess, checkpoint_path, global_step=batch_num)
 

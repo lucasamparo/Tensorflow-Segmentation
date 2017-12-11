@@ -12,6 +12,7 @@ O dataset utilizado está contido na pasta *data128_128*, separado em treino, va
 
 ## Visão Geral
 TODO
+O sistema
 There are many neural network architectures for semantic image segmentation (to have some basic overview, you can read project_summary.pdf), but most of them use convolutional encoder-decoder architecture.
 
 ![](http://mi.eng.cam.ac.uk/projects/segnet/images/segnet.png)

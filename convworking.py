@@ -110,7 +110,14 @@ class Network:
 
         # MSE loss
         # Expression Removal with MSE loss function
-        mean = tf.reduce_mean(tf.square(self.segmentation_result - self.targets))
+        output = self.segmentation_result
+        inputv = self.targets
+        '''tf.reshape(output, [128,128])
+        tf.reshape(inputv, [128,128])
+        mask1 = tf.constant(3.0, shape=[128,64])
+        mask2 = tf.constant(1.0, shape=[128,64])
+        mask = tf.concat([mask1, mask2], 1)'''
+        mean = tf.reduce_mean(tf.square(output - inputv))
         self.cost1 = mean;
         # Reconstruct with MS_SSIM loss function
         #self.cost2 = 1 - ssim.tf_ms_ssim(self.final_result, self.targets)
@@ -153,14 +160,14 @@ class Dataset:
 
         for file in files_list:
             input_image = os.path.join(folder, 'inputs/{}'.format(mode), file)
-            target_image = os.path.join(folder, 'targets/{}'.format(mode), file)
+            output_image = os.path.join(folder, 'targets/{}'.format(mode), file)
             in_path.append(os.path.join('inputs/{}'.format(mode), file))
 
             test_image = cv2.imread(input_image, 0)
             test_image = cv2.resize(test_image, (128, 128))
             inputs.append(test_image)
 
-            target_image = cv2.imread(target_image, 0)
+            target_image = cv2.imread(output_image, 0)
             target_image = cv2.resize(target_image, (128, 128))
             targets.append(target_image)
 
@@ -309,7 +316,7 @@ def train():
                     print("Best accuracy: {} in batch {}".format(max_acc[0], max_acc[1]))
                     print("Total time: {}".format(time.time() - global_start))
                     
-                    if mse <= min_mse[0] and mse < 5000:
+                    if mse <= min_mse[0] and mse < 5300:
                         train_dataset, paths, tam = dataset.all_train_batches()
                         for i in range(tam+1):
                             batch = train_dataset[BATCH_SIZE*i:BATCH_SIZE*(i+1)]
@@ -319,8 +326,8 @@ def train():
                             image = np.array(image[0])
                             for j in range(image.shape[0]):
                                 save_image = np.resize(image[j], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
-                                fig = plt.figure(frameon=False)
-                                fig.set_size_inches(network.IMAGE_HEIGHT, network.IMAGE_WIDTH)
+                                fig = plt.figure(frameon=False, dpi=100)
+                                fig.set_size_inches(network.IMAGE_HEIGHT/100, network.IMAGE_WIDTH/100)
                                 ax = plt.Axes(fig, [0., 0., 1., 1.])
                                 ax.set_axis_off()
                                 fig.add_axes(ax)

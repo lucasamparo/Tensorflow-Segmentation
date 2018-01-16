@@ -145,7 +145,7 @@ class Dataset:
         
         train_files = os.listdir(os.path.join(folder, 'inputs/train'))
         validation_files = os.listdir(os.path.join(folder, 'inputs/valid'))
-        test_files = os.listdir(os.path.join(folder, 'inputs/test'))
+        test_files = os.listdir(os.path.join(folder, 'targets/test'))
 
         self.train_inputs, self.train_paths, self.train_targets = self.file_paths_to_images(folder, train_files)
         self.test_inputs, self.test_paths, self.test_targets = self.file_paths_to_images(folder, test_files, mode="test")

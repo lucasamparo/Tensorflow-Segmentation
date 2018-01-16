@@ -5,3 +5,4 @@ figure*.jpg
 *.pyc
 logs/
 save/
+*.caffemodel

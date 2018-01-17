@@ -2,7 +2,7 @@ CXX = g++
 
 CXXFLAGS = -std=c++14 -O3 -ffast-math -D CPU_ONLY -D EIGEN_DONT_PARALLELIZE
 
-LDFLAGS = -lpthread -lz `pkg-config --libs opencv` -L ~/Git/caffe/build/lib -lboost_system -lcaffe -lglog -lpthread -lprotobuf
+LDFLAGS = -lpthread -lz `pkg-config --libs opencv` -L ~/Git/caffe/build/lib -lboost_system -lcaffe -lglog -lpthread -lprotobuf -lopencv_face
 
 INCLUDE = `pkg-config --cflags opencv` -I /usr/local/include/liblzf/ -I $(CURDIR)/include -I ~/Git/caffe/include
 
@@ -34,13 +34,19 @@ build/%.o: src/%.cpp include/%.hpp
 build/extract_descriptors.o: src/extract_descriptors.cpp include/descriptor.hpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@ $(INCLUDE)
 
-extract_descriptors.out: build/extract_descriptors.o build/detector.o build/util.o build/normalize.o build/descriptor.o
+build/recog.o: src/reconhecimento.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@ $(INCLUDE)
+
+cnn.out: build/extract_descriptors.o build/detector.o build/util.o build/normalize.o build/descriptor.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 record_video.out: build/record_video.o build/realsense.o build/capture.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 load.out: build/loadrealsense.o build/load.o build/aligner.o build/detector.o build/util.o build/normalize.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+common.out: build/recog.o build/detector.o build/util.o build/normalize.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 build/calculate_psafe.o: src/calculate_psafe.cpp

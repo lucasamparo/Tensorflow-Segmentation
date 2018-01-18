@@ -16,6 +16,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import gen_nn_ops
+from tensorflow.python.framework.graph_util import convert_variables_to_constants
 from PIL import Image
 
 from conv2d import Conv2d
@@ -26,6 +27,7 @@ import datetime
 import io
 import utils
 import gc
+import freeze_graph as fg
 
 np.set_printoptions(threshold=np.nan)
 
@@ -53,9 +55,16 @@ class Network:
             
             layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_4_1'))
             layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_4_2'))
+            #layers.append(MaxPool2d(kernel_size=2, name='max_4', skip_connection=skip_connections))
             
             layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_5_1'))
             layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_5_2'))
+            
+            """layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_6_1'))
+            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_6_2'))
+
+            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_7_1'))
+            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_7_2'))"""
 
         self.inputs = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.IMAGE_CHANNELS],
                                      name='inputs')
@@ -87,36 +96,12 @@ class Network:
             else:
                 net = layer.create_layer_reversed(net, prev_layer=self.layers[layer.name])
 
-        '''# Reconstruct part
-        #Input
-        #net2 = tf.concat([self.segmentation_result, self.inputs], axis=3)
-        net2 = self.segmentation_result
-        #Layers
-        slayers = []
-        slayers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv2_1_1'))
-        slayers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv2_1_2'))
-        slayers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=1, name='conv2_2_1'))
-        
-        prev = None
-        for l in slayers:
-            old = net2
-            self.layers[l.name] = net2 = l.create_layer(net2, prev_layer=prev)
-            if prev == None:
-                prev = old
-            else:
-                prev = tf.concat([prev, old], axis=3)
-        self.final_result = net2'''
         self.final_result = self.segmentation_result
 
         # MSE loss
         # Expression Removal with MSE loss function
         output = self.segmentation_result
         inputv = self.targets
-        '''tf.reshape(output, [128,128])
-        tf.reshape(inputv, [128,128])
-        mask1 = tf.constant(3.0, shape=[128,64])
-        mask2 = tf.constant(1.0, shape=[128,64])
-        mask = tf.concat([mask1, mask2], 1)'''
         mean = tf.reduce_mean(tf.square(output - inputv))
         self.cost1 = mean;
         # Reconstruct with MS_SSIM loss function
@@ -145,7 +130,7 @@ class Dataset:
         
         train_files = os.listdir(os.path.join(folder, 'inputs/train'))
         validation_files = os.listdir(os.path.join(folder, 'inputs/valid'))
-        test_files = os.listdir(os.path.join(folder, 'targets/test'))
+        test_files = os.listdir(os.path.join(folder, 'inputs/test'))
 
         self.train_inputs, self.train_paths, self.train_targets = self.file_paths_to_images(folder, train_files)
         self.test_inputs, self.test_paths, self.test_targets = self.file_paths_to_images(folder, test_files, mode="test")
@@ -249,7 +234,7 @@ def train():
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
 
     # create directory for saving models
-    os.makedirs(os.path.join('save', network.description, timestamp))
+    #os.makedirs(os.path.join('save', network.description, timestamp))
 
     dataset = Dataset(folder='data{}_{}'.format(network.IMAGE_HEIGHT, network.IMAGE_WIDTH), include_hair=False,
                       batch_size=BATCH_SIZE)
@@ -332,7 +317,8 @@ def train():
                                 ax.set_axis_off()
                                 fig.add_axes(ax)
                                 ax.imshow(save_image, cmap="gray")
-                                fig.savefig("result/{}".format(p[j]))
+                                separated = p[j].split('/')
+                                fig.savefig("result/{}/{}".format(separated[0],separated[2]))
                                 print("salvou {}".format(p[j]))
                                 plt.close(fig)
                                 del fig
@@ -365,9 +351,33 @@ def train():
                     image_summary = sess.run(image_summary_op)
                     summary_writer.add_summary(image_summary)
 
-                    if test_accuracy > max_acc[0]:
-                        checkpoint_path = os.path.join('save', network.description, timestamp, 'model.ckpt')
-                        saver.save(sess, checkpoint_path, global_step=batch_num)
+                    print(test_accuracy , " " , max_acc[0])
+                    if test_accuracy >= max_acc[0]:
+                        print("saving model...")
+                        minimal_graph = convert_variables_to_constants(sess, sess.graph_def, ["output"])
+
+                        tf.train.write_graph(minimal_graph, '.', "save/minimal_graph.txt", as_text=True)
+                        saver = tf.train.Saver(tf.global_variables())
+                        saver.save(sess,"save/checkpoint.data", global_step=0)
+
+                        checkpoint_state_name = "checkpoint_state"
+                        input_graph_name = "input_graph.pb"
+                        output_graph_name = "output_graph.pb"
+
+                        input_graph_path = "save/minimal_graph.txt"
+                        input_saver_def_path = ""
+                        input_binary = False
+                        input_checkpoint_path = 'save/checkpoint.data' + "-0"
+
+                        # Note that we this normally should be only "output_node"!!!
+                        output_node_names = "output" 
+                        restore_op_name = "save/restore_all"
+                        filename_tensor_name = "save/Const:0"
+                        output_graph_path = os.path.join("save", output_graph_name)
+                        clear_devices = False
+
+                        fg.freeze_graph(input_graph_path, input_saver_def_path,input_binary, input_checkpoint_path,
+                                        output_node_names, restore_op_name,filename_tensor_name, output_graph_path,clear_devices, False)
 
 
 if __name__ == '__main__':

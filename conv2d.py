@@ -62,7 +62,7 @@ class Conv2d(Layer):
         output.set_shape([None, self.input_shape[1], self.input_shape[2], self.input_shape[3]])
 
         if last_layer:
-            output = tf.add(tf.contrib.layers.batch_norm(output), b)
+            output = tf.add(tf.contrib.layers.batch_norm(output), b, name="output")
         else:
             output = lrelu(tf.add(tf.contrib.layers.batch_norm(output), b))
         # print('convd2_transposed: output_shape: {}'.format(utils.get_incoming_shape(output)))

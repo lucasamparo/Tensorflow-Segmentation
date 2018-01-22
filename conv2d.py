@@ -8,7 +8,7 @@ from libs.activations import lrelu
 class Conv2d(Layer):
     # global things...
     layer_index = 0
-
+    
     def __init__(self, kernel_size, strides, output_channels, name):
         self.kernel_size = kernel_size
         self.strides = strides
@@ -49,13 +49,13 @@ class Conv2d(Layer):
     def create_layer_reversed(self, input, prev_layer=None, last_layer=False):
         # print('convd2_transposed: input_shape: {}'.format(utils.get_incoming_shape(input)))
         # W = self.encoder[layer_index]
-        with tf.variable_scope('conv', reuse=True):
-            W = tf.get_variable('W{}'.format(self.name[-5:]))
+        with tf.variable_scope('conv', reuse=tf.AUTO_REUSE):
+            tW = tf.get_variable('W{}'.format(self.name[-5:])) 
+            W = tf.get_variable('Wr{}'.format(self.name[-5:]), shape=tW.get_shape())
             b = tf.Variable(tf.zeros([W.get_shape().as_list()[2]]))
 
         output = tf.nn.conv2d_transpose(
-            input, W,
-            tf.stack([tf.shape(input)[0], self.input_shape[1], self.input_shape[2], self.input_shape[3]]),
+            input, W, tf.stack([tf.shape(input)[0], self.input_shape[1], self.input_shape[2], self.input_shape[3]]),
             strides=self.strides, padding='SAME')
 
         Conv2d.layer_index += 1

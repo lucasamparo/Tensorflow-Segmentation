@@ -57,11 +57,13 @@ class Network:
             layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_4_2'))
             #layers.append(MaxPool2d(kernel_size=2, name='max_4', skip_connection=skip_connections))
             
-            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_5_1'))
+            """layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_5_1'))
             layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_5_2'))
+            #layers.append(MaxPool2d(kernel_size=2, name='max_5', skip_connection=skip_connections))
             
-            """layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_6_1'))
+            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_6_1'))
             layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_6_2'))
+            layers.append(MaxPool2d(kernel_size=2, name='max_6', skip_connection=skip_connections))
 
             layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_7_1'))
             layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_7_2'))"""
@@ -319,7 +321,6 @@ def train():
                                 ax.imshow(save_image, cmap="gray")
                                 separated = p[j].split('/')
                                 fig.savefig("result/{}/{}".format(separated[0],separated[2]))
-                                print("salvou {}".format(p[j]))
                                 plt.close(fig)
                                 del fig
                                 gc.collect()

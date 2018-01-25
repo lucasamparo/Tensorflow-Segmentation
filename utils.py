@@ -35,7 +35,7 @@ def autoformat_kernel_2d(strides):
 
 
 def max_pool_2d(incoming, kernel_size, strides=None, padding='same',
-                name="MaxPool2D"):
+                name="MaxPool2D", scopev=""):
     """ Max Pooling 2D.
     Input:
         4-D Tensor [batch, height, width, in_channels].
@@ -59,17 +59,11 @@ def max_pool_2d(incoming, kernel_size, strides=None, padding='same',
     strides = autoformat_kernel_2d(strides) if strides else kernel
     padding = autoformat_padding(padding)
 
-    with tf.name_scope(name) as scope:
-        inference = tf.nn.max_pool(incoming, kernel, strides, padding)
+    with tf.variable_scope(scopev, reuse=tf.AUTO_REUSE):
+        inference = tf.nn.max_pool(incoming, kernel, strides, padding, name=name)
 
         # Track activations.
         tf.add_to_collection(tf.GraphKeys.ACTIVATIONS, inference)
-
-    # Add attributes to Tensor to easy access weights
-    inference.scope = scope
-
-    # Track output tensor.
-    # tf.add_to_collection(tf.GraphKeys.LAYER_TENSOR + '/' + name, inference)
 
     return inference
 

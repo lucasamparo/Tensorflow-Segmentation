@@ -19,7 +19,7 @@ class Conv2d(Layer):
     def reverse_global_variables():
         Conv2d.layer_index = 0
 
-    def create_layer(self, input, prev_layer = None):
+    def create_layer(self, input, prev_layer = None, relu=False, scope=""):
         # print('convd2: input_shape: {}'.format(utils.get_incoming_shape(input)))
         self.input_shape = utils.get_incoming_shape(input)
         if prev_layer == None:
@@ -27,9 +27,8 @@ class Conv2d(Layer):
         else:
             number_of_input_channels = input.shape[3] + prev_layer.shape[3]
 
-        with tf.variable_scope('conv', reuse=False):
-            W = tf.get_variable('W{}'.format(self.name[-5:]),
-                                shape=(self.kernel_size, self.kernel_size, number_of_input_channels, self.output_channels))
+        with tf.variable_scope('conv{}'.format(scope), reuse=tf.AUTO_REUSE):
+            W = tf.get_variable('W{}'.format(self.name),shape=(self.kernel_size, self.kernel_size, number_of_input_channels, self.output_channels))
             b = tf.Variable(tf.zeros([self.output_channels]))
         self.encoder_matrix = W
         Conv2d.layer_index += 1
@@ -42,7 +41,10 @@ class Conv2d(Layer):
 
         # print('convd2: output_shape: {}'.format(utils.get_incoming_shape(output)))
 
-        output = lrelu(tf.contrib.layers.batch_norm(output))
+        if relu:
+            output = tf.contrib.layers.batch_norm(output)
+        else: 
+            output = lrelu(tf.contrib.layers.batch_norm(output))
 
         return output
 
@@ -50,8 +52,8 @@ class Conv2d(Layer):
         # print('convd2_transposed: input_shape: {}'.format(utils.get_incoming_shape(input)))
         # W = self.encoder[layer_index]
         with tf.variable_scope('conv', reuse=tf.AUTO_REUSE):
-            tW = tf.get_variable('W{}'.format(self.name[-5:])) 
-            W = tf.get_variable('Wr{}'.format(self.name[-5:]), shape=tW.get_shape())
+            tW = tf.get_variable('W{}'.format(self.name)) 
+            W = tf.get_variable('Wr{}'.format(self.name), shape=tW.get_shape())
             b = tf.Variable(tf.zeros([W.get_shape().as_list()[2]]))
 
         output = tf.nn.conv2d_transpose(

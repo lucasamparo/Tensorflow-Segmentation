@@ -34,6 +34,8 @@ class Dataset:
         self.test_outputs, self.tsoutput_paths = self.file_paths_to_images(test_ground_truth, test_gt)
 
         self.pointer = 0
+        
+        self.history_buf = self.train_inputs
 
     def file_paths_to_images(self, folder, files_list):
         inputs = []
@@ -67,8 +69,12 @@ class Dataset:
         targets = []
         
         for i in range(self.batch_size):
-            inputs.append(np.array(self.train_inputs[self.pointer + i]))
-            targets.append(np.array(self.train_outputs[self.pointer + i]))
+            if i <= (self.batch_size/2):
+                inputs.append(np.array(self.train_inputs[self.pointer + i]))
+                targets.append(np.array(self.train_outputs[self.pointer + i]))
+            else:
+                inputs.append(np.array(self.history_buf[self.pointer + i]))
+                targets.append(np.array(self.train_outputs[self.pointer + i]))            
 
         self.pointer += self.batch_size
 
@@ -89,7 +95,7 @@ class Dataset:
         i = 0;
         tensor = np.array(tensor[0])
         for j in range(tensor.shape[0]):
-            self.train_inputs[lista[i]] = cv2.resize(tensor[j], (128,128))
+            self.history_buf[lista[i]] = cv2.resize(tensor[j], (128,128))
             i += 1
         
         
@@ -98,7 +104,7 @@ class Discriminador:
     IMAGE_WIDTH = 128
     IMAGE_CHANNELS = 1
 
-    def __init__(self, layers=None, name="", skip_connections=True, per_image_standardization=False):
+    def __init__(self, layers=None, name="", skip_connections=True, external_input=None):
         if layers == None:
             layers = []
             layers.append(Conv2d(kernel_size=3, strides=[1, 2, 2, 1], output_channels=96, name='dconv_1_1'))
@@ -109,18 +115,17 @@ class Discriminador:
             layers.append(Conv2d(kernel_size=1, strides=[1, 1, 1, 1], output_channels=32, name='dconv_2_2'))
             layers.append(Conv2d(kernel_size=1, strides=[1, 1, 1, 1], output_channels=2, name='dconv_2_3'))
             
-        self.inputs = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.IMAGE_CHANNELS],name='{}_inputs'.format(name))
+        if external_input == None:
+            self.inputs = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.IMAGE_CHANNELS],name='{}_inputs'.format(name))
+        else:
+            self.inputs = tf.identity(external_input, name="{}_inputs".format(name))
         self.targets = tf.placeholder(tf.float32, [None, 1, 1, 1], name='{}_targets'.format(name))
         self.is_training = tf.placeholder_with_default(False, [], name='is_training')
         self.description = ""
 
         self.layers = {}
 
-        if per_image_standardization:
-            list_of_images_norm = tf.map_fn(tf.image.per_image_standardization, self.inputs)
-            net = tf.stack(list_of_images_norm)
-        else:
-            net = self.inputs
+        net = self.inputs
         
         #Criando camadas
         for layer in layers:
@@ -135,8 +140,7 @@ class Refinador:
     IMAGE_WIDTH = 128
     IMAGE_CHANNELS = 1
 
-    def __init__(self, layers=None, per_image_standardization=False, batch_norm=True, skip_connections=True):
-        self.dis = Discriminador(name="real")
+    def __init__(self, layers=None, batch_norm=True, skip_connections=True):
         if layers == None:
             layers = []
             layers.append(Conv2d(kernel_size=3, strides=[1, 1, 1, 1], output_channels=64, name='rconv_1_1'))
@@ -150,11 +154,7 @@ class Refinador:
 
         self.layers = {}
 
-        if per_image_standardization:
-            list_of_images_norm = tf.map_fn(tf.image.per_image_standardization, self.inputs)
-            net = tf.stack(list_of_images_norm)
-        else:
-            net = self.inputs
+        net = self.inputs
         
         net = layers[0].create_layer(net, scope="ref")
         #Repeticao de layers
@@ -168,6 +168,8 @@ class Refinador:
         net = layers[1].create_layer(net, scope="ref")
         with tf.variable_scope("convref", reuse=False):
             self.final_result = tf.tanh(net, name="output")
+            
+        self.dis = Discriminador(name="real", external_input=self.final_result)
         
 class Modelo:    
     IMAGE_HEIGHT = 128
@@ -200,9 +202,9 @@ class Modelo:
         
         #Otimizadores
         var_list = tf.contrib.framework.get_variables("convref")
-        self.refiner_optim = tf.train.AdamOptimizer(self.learning_rate).minimize(self.refiner_loss, self.refiner_step, var_list=var_list)
+        self.refiner_optim = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.refiner_loss, self.refiner_step, var_list=var_list)
         var_list = tf.contrib.framework.get_variables("convdisc");
-        self.discrim_optim = tf.train.AdamOptimizer(self.learning_rate).minimize(self.discrim_loss, self.discrim_step, var_list=var_list)    
+        self.discrim_optim = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.discrim_loss, self.discrim_step, var_list=var_list)    
         
 def saveImage(test_inputs, test_target, test_result, batch_num, n = 12):
     fig, axs = plt.subplots(4, n, figsize=(n * 3, 10))
@@ -251,7 +253,7 @@ def train():
                 batch_targets = np.reshape(batch_targets,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
                 batch_targets = np.multiply(batch_targets, 1.0 / 255)
                 
-                ref_loss = sess.run([modelo.refiner_loss],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.dis.inputs: batch_targets, modelo.ref.is_training: True})
+                ref_loss = sess.run([modelo.refiner_loss],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: True})
                 print("{} de {} | Refiner Loss: {}".format(k * dataset.num_batches_in_epoch() + batch_i + 1,refepoch*dataset.num_batches_in_epoch(),ref_loss))
             
         #Treinando um pouco o discriminador
@@ -267,9 +269,7 @@ def train():
                 batch_targets = np.reshape(batch_targets,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
                 batch_targets = np.multiply(batch_targets, 1.0 / 255)
                 
-                fake_input = sess.run([modelo.ref.final_result],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: False})
-                fake_input = np.reshape(fake_input,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
-                dis_loss = sess.run([modelo.discrim_loss],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.dis.inputs: fake_input, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
+                dis_loss = sess.run([modelo.discrim_loss],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.inputs: batch_inputs, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
                 print("{} de {} | Discriminator Loss: {}".format(k * dataset.num_batches_in_epoch() + batch_i + 1,refepoch*dataset.num_batches_in_epoch(),dis_loss))
         
         print("Treinando os dois modelos")
@@ -285,10 +285,9 @@ def train():
                 batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
                 batch_targets = np.multiply(batch_targets, 1.0 / 255)
                 
-                fake_input, ref_loss = sess.run([modelo.ref.final_result, modelo.refiner_loss],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.dis.inputs: batch_targets, modelo.ref.is_training: True, modelo.ref.dis.is_training: False})
-                fake_input = np.reshape(fake_input,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
+                ref_loss = sess.run([modelo.refiner_loss],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: True, modelo.ref.dis.is_training: False})
                 
-                dis_loss = sess.run([modelo.discrim_loss],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.dis.inputs: fake_input, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
+                dis_loss = sess.run([modelo.discrim_loss],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.inputs: batch_inputs, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
                 print("#{}| Disc. Loss: {} | Ref. Loss: {}".format(batch_num, dis_loss, ref_loss))
                 
                 if batch_num % 100 == 0:
@@ -301,7 +300,7 @@ def train():
                     result = sess.run([modelo.ref.final_result],feed_dict={modelo.ref.inputs: test_input, modelo.ref.is_training: False})
                     result = np.reshape(result,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
                     
-                    mse = np.reduce_mean(np.abs(result - test_target))
+                    mse = np.mean(np.abs(result - test_target))
                     print("Test MSE: {}".format(mse))
                     
                     imageBuffer = saveImage(test_input, test_target, result, batch_num)

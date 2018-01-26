@@ -104,16 +104,17 @@ class Discriminador:
     IMAGE_WIDTH = 128
     IMAGE_CHANNELS = 1
 
-    def __init__(self, layers=None, name="", skip_connections=True, external_input=None):
+    def __init__(self, layers=None, name="", external_input=None):
         if layers == None:
             layers = []
             layers.append(Conv2d(kernel_size=3, strides=[1, 2, 2, 1], output_channels=96, name='dconv_1_1'))
             layers.append(Conv2d(kernel_size=3, strides=[1, 2, 2, 1], output_channels=64, name='dconv_1_2'))
-            layers.append(MaxPool2d(kernel_size=3, name='max_1', skip_connection=skip_connections))
+            layers.append(MaxPool2d(kernel_size=3, name='max_1'))
             
             layers.append(Conv2d(kernel_size=3, strides=[1, 1, 1, 1], output_channels=32, name='dconv_2_1'))
             layers.append(Conv2d(kernel_size=1, strides=[1, 1, 1, 1], output_channels=32, name='dconv_2_2'))
             layers.append(Conv2d(kernel_size=1, strides=[1, 1, 1, 1], output_channels=2, name='dconv_2_3'))
+            layers.append(MaxPool2d(kernel_size=3, name='max_2'))
             
         if external_input == None:
             self.inputs = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.IMAGE_CHANNELS],name='{}_inputs'.format(name))
@@ -159,7 +160,7 @@ class Refinador:
         net = layers[0].create_layer(net, scope="ref")
         #Repeticao de layers
         with tf.variable_scope("convref", reuse=False):
-            for i in range(4):
+            for i in range(6):
                 l1 = Conv2d(kernel_size=3, strides=[1,1,1,1], output_channels=64, name="conv_rep_{}_1".format(i))
                 l2 = Conv2d(kernel_size=3, strides=[1,1,1,1], output_channels=64, name="conv_rep_{}_2".format(i))
                 l1 = l1.create_layer(net)
@@ -181,7 +182,7 @@ class Modelo:
         self.ref = Refinador()
         self.refiner_step = tf.Variable(0, name="refiner_step", trainable=False)
         self.discrim_step = tf.Variable(0, name="discrim_step", trainable=False)
-        self.learning_rate= 0.001
+        self.learning_rate= 0.0001
         
         #UM discriminador para os exemplos reais e outro para os exemplos do refinador
         self.dis_real = Discriminador(name="real")
@@ -190,14 +191,14 @@ class Modelo:
         #Refinador
         se_lossr = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.ref.dis.logits, labels=tf.ones_like(self.ref.dis.logits, dtype=tf.int32)[:,:,:,0])
         self.realism_loss = tf.reduce_sum(se_lossr, [1,2], name="realism_loss")
-        self.regularization_loss = 0.5 * tf.reduce_sum(tf.abs(self.ref.final_result - self.ref.inputs), [1,2,3], name="regularization_loss")
+        self.regularization_loss = 0.2 * tf.reduce_sum(tf.abs(self.ref.final_result - self.ref.inputs), [1,2,3], name="regularization_loss")
         self.refiner_loss = tf.reduce_mean(self.realism_loss + self.regularization_loss, name="refiner_loss")
         
         #Discriminador
-        se_lossd = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.dis_real.logits, labels=tf.zeros_like(self.dis_real.logits, dtype=tf.int32)[:,:,:,0])
-        self.refiner_d_loss = tf.reduce_sum(se_lossd, [1,2], name="refiner_d_loss")
-        se_losss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.ref.dis.logits, labels=tf.ones_like(self.ref.dis.logits, dtype=tf.int32)[:,:,:,0])
-        self.synthetic_d_loss = tf.reduce_sum(se_losss, [1,2], name="synthetich_d_loss")
+        se_lossd = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.dis_real.logits, labels=tf.ones_like(self.dis_real.logits, dtype=tf.int32)[:,:,:,0])
+        self.synthetic_d_loss = tf.reduce_sum(se_lossd, [1,2], name="refiner_d_loss")
+        se_losss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.ref.dis.logits, labels=tf.zeros_like(self.ref.dis.logits, dtype=tf.int32)[:,:,:,0])
+        self.refiner_d_loss = tf.reduce_sum(se_losss, [1,2], name="synthetich_d_loss")
         self.discrim_loss = tf.reduce_mean(self.refiner_d_loss + self.synthetic_d_loss, name="discrim_loss")
         
         #Otimizadores
@@ -228,20 +229,20 @@ def saveImage(test_inputs, test_target, test_result, batch_num, n = 12):
     return buf
         
 def train():
-    dataset = Dataset(batch_size=256, input_path="result/export", ground_truth="data128_128/inputs/train", test_input_path="result/inputs", test_ground_truth="data128_128/inputs/test")
+    dataset = Dataset(batch_size=32, input_path="result/export", ground_truth="data128_128/inputs/train", test_input_path="result/inputs", test_ground_truth="data128_128/inputs/test")
     modelo = Modelo()
     
     nepoch = 3000
     
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        summary_writer = tf.summary.FileWriter("logs/gan", sess.graph)
+        #summary_writer = tf.summary.FileWriter("logs/gan", sess.graph)
         
         real_labels = np.reshape(np.full((dataset.batch_size,1), 1),(dataset.batch_size, 1, 1, 1))
         fake_labels = np.reshape(np.full((dataset.batch_size,1), 0),(dataset.batch_size, 1, 1, 1))
         
         #Treinando um pouco o refinador
-        print("Treinando um pouco o refinador")
+        """print("Treinando um pouco o refinador")
         refepoch = round(100/dataset.num_batches_in_epoch())+1
         for k in range(refepoch):
             dataset.reset_batch_pointer()        
@@ -253,12 +254,13 @@ def train():
                 batch_targets = np.reshape(batch_targets,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
                 batch_targets = np.multiply(batch_targets, 1.0 / 255)
                 
-                ref_loss = sess.run([modelo.refiner_loss],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: True})
-                print("{} de {} | Refiner Loss: {}".format(k * dataset.num_batches_in_epoch() + batch_i + 1,refepoch*dataset.num_batches_in_epoch(),ref_loss))
+                ref_loss, _ = sess.run([modelo.refiner_loss, modelo.refiner_optim],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: True})
+                print("{} de {} | Refiner Loss: {}".format(k * dataset.num_batches_in_epoch() + batch_i + 1,refepoch*dataset.num_batches_in_epoch(),ref_loss))"""
             
         #Treinando um pouco o discriminador
         print("Treinando um pouco o discriminador")
-        refepoch = round(400/dataset.num_batches_in_epoch())+1
+        #refepoch = round(400/dataset.num_batches_in_epoch())+1
+        refepoch = 2000
         for k in range(refepoch):
             dataset.reset_batch_pointer()        
             for batch_i in range(dataset.num_batches_in_epoch()):
@@ -269,11 +271,26 @@ def train():
                 batch_targets = np.reshape(batch_targets,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
                 batch_targets = np.multiply(batch_targets, 1.0 / 255)
                 
-                dis_loss = sess.run([modelo.discrim_loss],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.inputs: batch_inputs, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
-                print("{} de {} | Discriminator Loss: {}".format(k * dataset.num_batches_in_epoch() + batch_i + 1,refepoch*dataset.num_batches_in_epoch(),dis_loss))
+                dis_loss, _ = sess.run([modelo.discrim_loss, modelo.discrim_optim],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.inputs: batch_inputs, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
+                batch_num = k * dataset.num_batches_in_epoch() + batch_i + 1
+                print("{} de {} | Discriminator Loss: {}".format(batch_num,refepoch*dataset.num_batches_in_epoch(),dis_loss))
+                
+                if batch_num % 100 == 0:
+                    test_input, test_target = dataset.test_inputs, dataset.test_outputs
+                    test_input, test_target = test_input[:dataset.batch_size], test_target[:dataset.batch_size]
+                    test_input = np.reshape(test_input, (dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
+                    test_target = np.reshape(test_target, (dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
+                    
+                    result_real = sess.run([modelo.dis_real.final_result],feed_dict={modelo.dis_real.inputs: test_target, modelo.dis_real.is_training: False})
+                    result_fake = sess.run([modelo.dis_real.final_result],feed_dict={modelo.dis_real.inputs: test_input, modelo.dis_real.is_training: False})
+                    
+                    real_error = np.sum(np.abs(result_real - np.ones_like(result_real)))
+                    fake_error = np.sum(np.abs(result_fake - np.zeros_like(result_fake)))                    
+                    test_error = real_error + fake_error
+                    print("Test Error: {} ({} + {})".format(test_error, real_error, fake_error))
         
         print("Treinando os dois modelos")
-        for epoch_i in range(nepoch):
+        """for epoch_i in range(nepoch):
             dataset.reset_batch_pointer()
             
             for batch_i in range(dataset.num_batches_in_epoch()):
@@ -285,9 +302,9 @@ def train():
                 batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
                 batch_targets = np.multiply(batch_targets, 1.0 / 255)
                 
-                ref_loss = sess.run([modelo.refiner_loss],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: True, modelo.ref.dis.is_training: False})
+                ref_loss, _ = sess.run([modelo.refiner_loss, modelo.refiner_optim],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: True, modelo.ref.dis.is_training: False})
                 
-                dis_loss = sess.run([modelo.discrim_loss],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.inputs: batch_inputs, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
+                dis_loss, _ = sess.run([modelo.discrim_loss, modelo.discrim_optim],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.inputs: batch_inputs, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
                 print("#{}| Disc. Loss: {} | Ref. Loss: {}".format(batch_num, dis_loss, ref_loss))
                 
                 if batch_num % 100 == 0:
@@ -311,8 +328,8 @@ def train():
                     summary_writer.add_summary(image_summary)
             
             fake_input, lista = dataset.get_hist_batch()
-            fake_input = sess.run([modelo.ref.final_result],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.dis.inputs: batch_targets, modelo.ref.is_training: False, modelo.ref.dis.is_training: False})
-            dataset.set_hist_batch(fake_input, lista)
+            fake_input = sess.run([modelo.ref.final_result],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: False})
+            dataset.set_hist_batch(fake_input, lista)"""
                  
         
 if __name__ == '__main__':

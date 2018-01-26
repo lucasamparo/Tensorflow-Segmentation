@@ -42,9 +42,9 @@ class Conv2d(Layer):
         # print('convd2: output_shape: {}'.format(utils.get_incoming_shape(output)))
 
         if relu:
-            output = tf.contrib.layers.batch_norm(output)
+            output = tf.add(tf.contrib.layers.batch_norm(output), b)
         else: 
-            output = lrelu(tf.contrib.layers.batch_norm(output))
+            output = lrelu(tf.add(tf.contrib.layers.batch_norm(output), b))
 
         return output
 

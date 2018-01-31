@@ -11,12 +11,11 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from random import sample
 
-from conv2d import Conv2d
-from max_pool_2d import MaxPool2d
-
 import numpy as np
 import tensorflow as tf
 import cv2
+
+import tensorflow.contrib.slim as slim
 
 class Dataset:
     def __init__(self, batch_size, input_path, ground_truth, test_input_path, test_ground_truth):
@@ -104,50 +103,32 @@ class Discriminador:
     IMAGE_WIDTH = 128
     IMAGE_CHANNELS = 1
 
-    def __init__(self, layers=None, name="", external_input=None):
-        if layers == None:
-            layers = []
-            layers.append(Conv2d(kernel_size=3, strides=[1, 2, 2, 1], output_channels=96, name='dconv_1_1'))
-            layers.append(Conv2d(kernel_size=3, strides=[1, 2, 2, 1], output_channels=64, name='dconv_1_2'))
-            layers.append(MaxPool2d(kernel_size=3, name='max_1'))
-            
-            layers.append(Conv2d(kernel_size=3, strides=[1, 1, 1, 1], output_channels=32, name='dconv_2_1'))
-            layers.append(Conv2d(kernel_size=1, strides=[1, 1, 1, 1], output_channels=32, name='dconv_2_2'))
-            layers.append(Conv2d(kernel_size=1, strides=[1, 1, 1, 1], output_channels=2, name='dconv_2_3'))
-            layers.append(MaxPool2d(kernel_size=3, name='max_2'))
-            
+    def __init__(self, layers=None, name="", external_input=None):    
         if external_input == None:
             self.inputs = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.IMAGE_CHANNELS],name='{}_inputs'.format(name))
         else:
             self.inputs = tf.identity(external_input, name="{}_inputs".format(name))
-        self.targets = tf.placeholder(tf.float32, [None, 1, 1, 1], name='{}_targets'.format(name))
+            
+        self.targets = tf.placeholder(tf.int32, [None, 2], name='{}_targets'.format(name))
         self.is_training = tf.placeholder_with_default(False, [], name='is_training')
         self.description = ""
 
         self.layers = {}
 
-        net = self.inputs
+        net = tf.reshape(self.inputs, [-1, self.IMAGE_HEIGHT*self.IMAGE_WIDTH*self.IMAGE_CHANNELS])
+        #net = self.inputs
         
-        #Criando camadas
-        for layer in layers:
-            self.layers[layer.name] = net = layer.create_layer(net, scope="disc")
-            self.description += "{}".format(layer.get_description)
-            
-        self.logits = net
-        self.final_result = tf.nn.softmax(self.logits, name="{}_output".format(name))
+        with tf.variable_scope("convdisc", reuse=tf.AUTO_REUSE) as scope:
+            self.logits = slim.stack(net, slim.fully_connected, [8192,4096,2048,1024,512,512,256,256,128,128,64,64,32,32,16,16,8,8,8,4,4,4,2], scope="fc")
+
+        self.final_result = tf.nn.softmax(logits=self.logits, name="{}_output".format(name))
 
 class Refinador:
     IMAGE_HEIGHT = 128
     IMAGE_WIDTH = 128
     IMAGE_CHANNELS = 1
 
-    def __init__(self, layers=None, batch_norm=True, skip_connections=True):
-        if layers == None:
-            layers = []
-            layers.append(Conv2d(kernel_size=3, strides=[1, 1, 1, 1], output_channels=64, name='rconv_1_1'))
-            #Aqui no meio tem uma maluquice nas conv2d
-            layers.append(Conv2d(kernel_size=1, strides=[1, 1, 1, 1], output_channels=1, name='rconv_2_1'))
-            
+    def __init__(self, layers=None, batch_norm=True, skip_connections=True):            
         self.inputs = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.IMAGE_CHANNELS],name='inputs')
         self.targets = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, 1], name='targets')
         self.is_training = tf.placeholder_with_default(False, [], name='is_training')
@@ -156,21 +137,17 @@ class Refinador:
         self.layers = {}
 
         net = self.inputs
-        
-        net = layers[0].create_layer(net, scope="ref")
-        #Repeticao de layers
-        with tf.variable_scope("convref", reuse=False):
-            for i in range(6):
-                l1 = Conv2d(kernel_size=3, strides=[1,1,1,1], output_channels=64, name="conv_rep_{}_1".format(i))
-                l2 = Conv2d(kernel_size=3, strides=[1,1,1,1], output_channels=64, name="conv_rep_{}_2".format(i))
-                l1 = l1.create_layer(net)
-                l1 = l2.create_layer(l1)
-                net = tf.nn.relu(tf.add(net, l1))
-        net = layers[1].create_layer(net, scope="ref")
-        with tf.variable_scope("convref", reuse=False):
-            self.final_result = tf.tanh(net, name="output")
+        with tf.variable_scope("convref", reuse=False) as scope:
+            net = slim.conv2d(net, 64, 7, 1, scope="conv_1")
+            for i in range(10):
+                layer = net
+                net = slim.conv2d(net, 64, 7, 1, scope="repeat_{}_1".format(i))
+                net = slim.conv2d(net, 64, 7, 1, scope="repeat_{}_2".format(i))
+                net = tf.nn.relu(tf.add(net, layer))
+            net = slim.conv2d(net, 1, 1, 1, scope="conv_2")
+            self.final_result = tf.nn.tanh(net, name="final_result")        
             
-        self.dis = Discriminador(name="real", external_input=self.final_result)
+        self.dis = Discriminador(name="fake", external_input=self.final_result)
         
 class Modelo:    
     IMAGE_HEIGHT = 128
@@ -189,23 +166,26 @@ class Modelo:
         
         #Computando os loss agora
         #Refinador
-        se_lossr = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.ref.dis.logits, labels=tf.ones_like(self.ref.dis.logits, dtype=tf.int32)[:,:,:,0])
-        self.realism_loss = tf.reduce_sum(se_lossr, [1,2], name="realism_loss")
+        se_lossr = tf.nn.softmax_cross_entropy_with_logits(logits=self.ref.dis.logits, labels=self.ref.dis.targets)
+        self.realism_loss = tf.reduce_sum(se_lossr, name="realism_loss")
         self.regularization_loss = 0.2 * tf.reduce_sum(tf.abs(self.ref.final_result - self.ref.inputs), [1,2,3], name="regularization_loss")
         self.refiner_loss = tf.reduce_mean(self.realism_loss + self.regularization_loss, name="refiner_loss")
         
         #Discriminador
-        se_lossd = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.dis_real.logits, labels=tf.ones_like(self.dis_real.logits, dtype=tf.int32)[:,:,:,0])
-        self.synthetic_d_loss = tf.reduce_sum(se_lossd, [1,2], name="refiner_d_loss")
-        se_losss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.ref.dis.logits, labels=tf.zeros_like(self.ref.dis.logits, dtype=tf.int32)[:,:,:,0])
-        self.refiner_d_loss = tf.reduce_sum(se_losss, [1,2], name="synthetich_d_loss")
-        self.discrim_loss = tf.reduce_mean(self.refiner_d_loss + self.synthetic_d_loss, name="discrim_loss")
+        se_lossd = tf.nn.softmax_cross_entropy_with_logits(logits=self.dis_real.logits, labels=self.dis_real.targets)
+        self.synthetic_d_loss = tf.reduce_sum(se_lossd, name="synthetich_d_loss")
+        se_losss = tf.nn.softmax_cross_entropy_with_logits(logits=self.ref.dis.logits, labels=self.ref.dis.targets)
+        self.refiner_d_loss = tf.reduce_sum(se_losss, name="refiner_d_loss")
+        self.discrim_loss = tf.reduce_mean(self.synthetic_d_loss + self.refiner_d_loss, name="discrim_loss")
         
         #Otimizadores
         var_list = tf.contrib.framework.get_variables("convref")
         self.refiner_optim = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.refiner_loss, self.refiner_step, var_list=var_list)
+        self.refiner_only_optim = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.regularization_loss)
+        
         var_list = tf.contrib.framework.get_variables("convdisc");
-        self.discrim_optim = tf.train.GradientDescentOptimizer(self.learning_rate).minimize(self.discrim_loss, self.discrim_step, var_list=var_list)    
+        self.discrim_only_optim = tf.train.AdamOptimizer(self.learning_rate).minimize(self.synthetic_d_loss)
+        self.discrim_optim = tf.train.AdamOptimizer(self.learning_rate).minimize(self.discrim_loss, self.discrim_step, var_list=var_list)    
         
 def saveImage(test_inputs, test_target, test_result, batch_num, n = 12):
     fig, axs = plt.subplots(4, n, figsize=(n * 3, 10))
@@ -229,68 +209,86 @@ def saveImage(test_inputs, test_target, test_result, batch_num, n = 12):
     return buf
         
 def train():
-    dataset = Dataset(batch_size=32, input_path="result/export", ground_truth="data128_128/inputs/train", test_input_path="result/inputs", test_ground_truth="data128_128/inputs/test")
+    input_path = "result/export"
+    ground_truth = "data128_128/inputs/train"
+    test_input_path = "result/inputs"
+    test_ground_truth = "data128_128/inputs/test"
+    dataset = Dataset(batch_size=32, input_path=input_path, ground_truth=ground_truth, test_input_path=test_input_path, test_ground_truth=test_ground_truth)
     modelo = Modelo()
     
     nepoch = 3000
     
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        #summary_writer = tf.summary.FileWriter("logs/gan", sess.graph)
+        summary_writer = tf.summary.FileWriter("logs/gan", sess.graph)
         
-        real_labels = np.reshape(np.full((dataset.batch_size,1), 1),(dataset.batch_size, 1, 1, 1))
-        fake_labels = np.reshape(np.full((dataset.batch_size,1), 0),(dataset.batch_size, 1, 1, 1))
+        real_labels = np.reshape(np.tile(np.array([0,1], dtype=np.int32), dataset.batch_size), [-1,2])
+        fake_labels = np.reshape(np.tile(np.array([1,0], dtype=np.int32), dataset.batch_size), [-1,2])
         
         #Treinando um pouco o refinador
-        """print("Treinando um pouco o refinador")
-        refepoch = round(100/dataset.num_batches_in_epoch())+1
-        for k in range(refepoch):
-            dataset.reset_batch_pointer()        
-            for batch_i in range(dataset.num_batches_in_epoch()):
-                batch_inputs, batch_targets = dataset.next_batch()
-                batch_inputs = np.reshape(batch_inputs,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
-                batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
-                
-                batch_targets = np.reshape(batch_targets,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
-                batch_targets = np.multiply(batch_targets, 1.0 / 255)
-                
-                ref_loss, _ = sess.run([modelo.refiner_loss, modelo.refiner_optim],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: True})
-                print("{} de {} | Refiner Loss: {}".format(k * dataset.num_batches_in_epoch() + batch_i + 1,refepoch*dataset.num_batches_in_epoch(),ref_loss))"""
+        print("Treinando um pouco o refinador")
+        dataset.reset_batch_pointer()
+        rep = 200 if 200 < dataset.num_batches_in_epoch() else dataset.num_batches_in_epoch()
+        for batch_i in range(rep):
+            batch_inputs, batch_targets = dataset.next_batch()
+            batch_inputs = np.reshape(batch_inputs,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
+            batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
             
+            batch_targets = np.reshape(batch_targets,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
+            batch_targets = np.multiply(batch_targets, 1.0 / 255)
+            
+            ref_loss, _ = sess.run([modelo.regularization_loss, modelo.refiner_only_optim],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: True})
+            print("{} de {} | Refiner Loss: {}".format(batch_i,rep,np.mean(ref_loss)))
+        
         #Treinando um pouco o discriminador
         print("Treinando um pouco o discriminador")
-        #refepoch = round(400/dataset.num_batches_in_epoch())+1
-        refepoch = 2000
-        for k in range(refepoch):
-            dataset.reset_batch_pointer()        
-            for batch_i in range(dataset.num_batches_in_epoch()):
-                batch_inputs, batch_targets = dataset.next_batch()
+        dataset.reset_batch_pointer()
+        rep = 1000 if 1000 < dataset.num_batches_in_epoch() else dataset.num_batches_in_epoch()      
+        for batch_i in range(dataset.num_batches_in_epoch()):
+            batch_inputs, batch_targets = dataset.next_batch()
+            
+            batch_inputs = np.reshape(batch_inputs,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
+            batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
+            batch_targets = np.reshape(batch_targets,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
+            batch_targets = np.multiply(batch_targets, 1.0 / 255)
+            
+            batch_ = np.vstack([batch_inputs, batch_targets])
+            label_ = np.vstack([real_labels, fake_labels])
+            
+            permutation = np.random.permutation(len(batch_))
+            batch = [batch_[i] for i in permutation]
+            label = [label_[i] for i in permutation]
+            
+            batch_inputs = np.array(batch)[:dataset.batch_size]
+            label_inputs = np.array(label, dtype=np.int32)[:dataset.batch_size]
+            
+            dis_loss, _ = sess.run([modelo.synthetic_d_loss, modelo.discrim_only_optim],feed_dict={modelo.dis_real.inputs: batch_inputs, modelo.dis_real.targets: label_inputs, modelo.dis_real.is_training: True})
+            print("{} de {} | Discriminator Loss: {}".format(batch_i,rep,dis_loss))
                 
-                batch_inputs = np.reshape(batch_inputs,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
-                batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
-                batch_targets = np.reshape(batch_targets,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
-                batch_targets = np.multiply(batch_targets, 1.0 / 255)
+            """if batch_num % 100 == 0:
+                test_input, test_target = dataset.test_inputs, dataset.test_outputs
+                test_input, test_target = test_input[:dataset.batch_size], test_target[:dataset.batch_size]
+                test_input = np.reshape(test_input, (dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
+                test_target = np.reshape(test_target, (dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
                 
-                dis_loss, _ = sess.run([modelo.discrim_loss, modelo.discrim_optim],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.inputs: batch_inputs, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
-                batch_num = k * dataset.num_batches_in_epoch() + batch_i + 1
-                print("{} de {} | Discriminator Loss: {}".format(batch_num,refepoch*dataset.num_batches_in_epoch(),dis_loss))
+                batch_ = np.vstack([test_input, test_target])
+                label_ = np.vstack([real_labels, fake_labels])
                 
-                if batch_num % 100 == 0:
-                    test_input, test_target = dataset.test_inputs, dataset.test_outputs
-                    test_input, test_target = test_input[:dataset.batch_size], test_target[:dataset.batch_size]
-                    test_input = np.reshape(test_input, (dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
-                    test_target = np.reshape(test_target, (dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
-                    
-                    result_real = sess.run([modelo.dis_real.final_result],feed_dict={modelo.dis_real.inputs: test_target, modelo.dis_real.is_training: False})
-                    result_fake = sess.run([modelo.dis_real.final_result],feed_dict={modelo.dis_real.inputs: test_input, modelo.dis_real.is_training: False})
-                    
-                    real_error = np.sum(np.abs(result_real - np.ones_like(result_real)))
-                    fake_error = np.sum(np.abs(result_fake - np.zeros_like(result_fake)))                    
-                    test_error = real_error + fake_error
-                    print("Test Error: {} ({} + {})".format(test_error, real_error, fake_error))
+                permutation = np.random.permutation(len(batch_))
+                batch = [batch_[i] for i in permutation]
+                label = [label_[i] for i in permutation]
+                
+                result_real = sess.run([modelo.dis_real.final_result],feed_dict={modelo.dis_real.inputs: batch, modelo.dis_real.is_training: False})
+                
+                test_error = np.abs(result_real[0] - label)
+                print(result_real[0][5], label[5])
+                print(result_real[0][10], label[10])
+                print(result_real[0][15], label[15])
+                print(result_real[0][20], label[20]) 
+                print("Test Error > SUM:{} MEAN:{}".format(np.sum(test_error),np.mean(test_error)))"""
         
         print("Treinando os dois modelos")
-        """for epoch_i in range(nepoch):
+        for epoch_i in range(nepoch):
             dataset.reset_batch_pointer()
             
             for batch_i in range(dataset.num_batches_in_epoch()):
@@ -302,10 +300,10 @@ def train():
                 batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
                 batch_targets = np.multiply(batch_targets, 1.0 / 255)
                 
-                ref_loss, _ = sess.run([modelo.refiner_loss, modelo.refiner_optim],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: True, modelo.ref.dis.is_training: False})
+                ref_loss, _ = sess.run([modelo.refiner_loss, modelo.refiner_optim],feed_dict={modelo.ref.inputs: batch_inputs,  modelo.ref.dis.targets: real_labels, modelo.ref.is_training: True, modelo.ref.dis.is_training: False})
                 
-                dis_loss, _ = sess.run([modelo.discrim_loss, modelo.discrim_optim],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.inputs: batch_inputs, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
-                print("#{}| Disc. Loss: {} | Ref. Loss: {}".format(batch_num, dis_loss, ref_loss))
+                #dis_loss, _ = sess.run([modelo.discrim_loss, modelo.discrim_optim],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.inputs: batch_inputs, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
+                print("#{}| Disc. Loss: {} | Ref. Loss: {}".format(batch_num, 0.0, ref_loss))
                 
                 if batch_num % 100 == 0:
                     #Testar e exportar o bagulho
@@ -327,23 +325,10 @@ def train():
                     image_summary = sess.run(image_summary_op)
                     summary_writer.add_summary(image_summary)
             
-            fake_input, lista = dataset.get_hist_batch()
-            fake_input = sess.run([modelo.ref.final_result],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: False})
-            dataset.set_hist_batch(fake_input, lista)"""
+                fake_input, lista = dataset.get_hist_batch()
+                fake_input = sess.run([modelo.ref.final_result],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: False})
+                dataset.set_hist_batch(fake_input, lista)
                  
         
 if __name__ == '__main__':
     train()        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        

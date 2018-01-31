@@ -119,7 +119,7 @@ class Discriminador:
         #net = self.inputs
         
         with tf.variable_scope("convdisc", reuse=tf.AUTO_REUSE) as scope:
-            self.logits = slim.stack(net, slim.fully_connected, [8192,4096,2048,1024,512,512,256,256,128,128,64,64,32,32,16,16,8,8,8,4,4,4,2], scope="fc")
+            self.logits = slim.stack(net, slim.fully_connected, [4096,512,128,8,2], scope="fc")
 
         self.final_result = tf.nn.softmax(logits=self.logits, name="{}_output".format(name))
 
@@ -139,7 +139,7 @@ class Refinador:
         net = self.inputs
         with tf.variable_scope("convref", reuse=False) as scope:
             net = slim.conv2d(net, 64, 7, 1, scope="conv_1")
-            for i in range(10):
+            for i in range(4):
                 layer = net
                 net = slim.conv2d(net, 64, 7, 1, scope="repeat_{}_1".format(i))
                 net = slim.conv2d(net, 64, 7, 1, scope="repeat_{}_2".format(i))
@@ -159,7 +159,7 @@ class Modelo:
         self.ref = Refinador()
         self.refiner_step = tf.Variable(0, name="refiner_step", trainable=False)
         self.discrim_step = tf.Variable(0, name="discrim_step", trainable=False)
-        self.learning_rate= 0.0001
+        self.learning_rate= tf.placeholder(tf.float32, [], name="learning_rate")
         
         #UM discriminador para os exemplos reais e outro para os exemplos do refinador
         self.dis_real = Discriminador(name="real")
@@ -237,14 +237,17 @@ def train():
             batch_targets = np.reshape(batch_targets,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
             batch_targets = np.multiply(batch_targets, 1.0 / 255)
             
-            ref_loss, _ = sess.run([modelo.regularization_loss, modelo.refiner_only_optim],feed_dict={modelo.ref.inputs: batch_inputs, modelo.ref.is_training: True})
+            ref_loss, _ = sess.run([modelo.regularization_loss, modelo.refiner_only_optim],feed_dict={modelo.ref.inputs: batch_inputs, modelo.learning_rate: 0.0001, modelo.ref.is_training: True})
             print("{} de {} | Refiner Loss: {}".format(batch_i,rep,np.mean(ref_loss)))
         
         #Treinando um pouco o discriminador
         print("Treinando um pouco o discriminador")
         dataset.reset_batch_pointer()
-        rep = 1000 if 1000 < dataset.num_batches_in_epoch() else dataset.num_batches_in_epoch()      
-        for batch_i in range(dataset.num_batches_in_epoch()):
+        rep = 1000
+        for batch_i in range(rep):
+            if batch_i % dataset.num_batches_in_epoch() == 0:
+                dataset.reset_batch_pointer()
+            
             batch_inputs, batch_targets = dataset.next_batch()
             
             batch_inputs = np.reshape(batch_inputs,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
@@ -262,7 +265,7 @@ def train():
             batch_inputs = np.array(batch)[:dataset.batch_size]
             label_inputs = np.array(label, dtype=np.int32)[:dataset.batch_size]
             
-            dis_loss, _ = sess.run([modelo.synthetic_d_loss, modelo.discrim_only_optim],feed_dict={modelo.dis_real.inputs: batch_inputs, modelo.dis_real.targets: label_inputs, modelo.dis_real.is_training: True})
+            dis_loss, _ = sess.run([modelo.synthetic_d_loss, modelo.discrim_only_optim],feed_dict={modelo.dis_real.inputs: batch_inputs, modelo.learning_rate: 0.00000001, modelo.dis_real.targets: label_inputs, modelo.dis_real.is_training: True})
             print("{} de {} | Discriminator Loss: {}".format(batch_i,rep,dis_loss))
                 
             """if batch_num % 100 == 0:
@@ -300,10 +303,10 @@ def train():
                 batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
                 batch_targets = np.multiply(batch_targets, 1.0 / 255)
                 
-                ref_loss, _ = sess.run([modelo.refiner_loss, modelo.refiner_optim],feed_dict={modelo.ref.inputs: batch_inputs,  modelo.ref.dis.targets: real_labels, modelo.ref.is_training: True, modelo.ref.dis.is_training: False})
+                ref_loss, _ = sess.run([modelo.refiner_loss, modelo.refiner_optim],feed_dict={modelo.ref.inputs: batch_inputs,  modelo.ref.dis.targets: real_labels, modelo.learning_rate: 0.0001, modelo.ref.is_training: True, modelo.ref.dis.is_training: False})
                 
-                #dis_loss, _ = sess.run([modelo.discrim_loss, modelo.discrim_optim],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.inputs: batch_inputs, modelo.ref.dis.targets: fake_labels, modelo.dis_real.is_training: True})
-                print("#{}| Disc. Loss: {} | Ref. Loss: {}".format(batch_num, 0.0, ref_loss))
+                dis_loss, _ = sess.run([modelo.discrim_loss, modelo.discrim_optim],feed_dict={modelo.dis_real.inputs: batch_targets, modelo.dis_real.targets: real_labels, modelo.ref.inputs: batch_inputs, modelo.ref.dis.targets: fake_labels, modelo.learning_rate: 0.00001, modelo.dis_real.is_training: True})
+                print("#{}| Disc. Loss: {} | Ref. Loss: {}".format(batch_num, dis_loss, ref_loss))
                 
                 if batch_num % 100 == 0:
                     #Testar e exportar o bagulho
@@ -313,12 +316,12 @@ def train():
                     test_target = np.reshape(test_target, (dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
                     
                     result = sess.run([modelo.ref.final_result],feed_dict={modelo.ref.inputs: test_input, modelo.ref.is_training: False})
-                    result = np.reshape(result,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
+                    #result = np.reshape(result,(dataset.batch_size, modelo.IMAGE_HEIGHT, modelo.IMAGE_WIDTH, 1))
                     
-                    mse = np.mean(np.abs(result - test_target))
+                    mse = np.mean(np.abs(result[0] - test_target))
                     print("Test MSE: {}".format(mse))
                     
-                    imageBuffer = saveImage(test_input, test_target, result, batch_num)
+                    imageBuffer = saveImage(test_input, test_target, result[0], batch_num)
                     image = tf.image.decode_png(imageBuffer.getvalue(), channels=4)
                     image = tf.expand_dims(image, 0)
                     image_summary_op = tf.summary.image("plot", image)

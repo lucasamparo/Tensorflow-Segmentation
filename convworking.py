@@ -28,6 +28,7 @@ import io
 import utils
 import gc
 import freeze_graph as fg
+import tensorflow.contrib.slim as slim
 
 np.set_printoptions(threshold=np.nan)
 
@@ -36,9 +37,80 @@ class Network:
     IMAGE_WIDTH = 128
     IMAGE_CHANNELS = 1
 
-    def __init__(self, layers=None, per_image_standardization=False, batch_norm=True, skip_connections=True):
-        # Define network - ENCODER (decoder will be symmetric).
+    def __init__(self, layers=None, skip_connections=True):
+        """self.inputs = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.IMAGE_CHANNELS],
+                                     name='inputs')
+        self.targets = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, 1], name='targets')
+        self.is_training = tf.placeholder_with_default(False, [], name='is_training')
+        self.description = ""
 
+        self.layers = {}
+
+        if per_image_standardization:
+            list_of_images_norm = tf.map_fn(tf.image.per_image_standardization, self.inputs)
+            net = tf.stack(list_of_images_norm)
+        else:
+            net = self.inputs
+        
+        n_deep = 4
+        sample = 2;
+        winit = tf.truncated_normal_initializer(stddev=0.01)
+        wreg = slim.l2_regularizer(0.0005)
+        # ENCODER
+        print("Input Dims:",net.get_shape())
+        print("start encoder modeling")
+        for i in range(n_deep):
+            if i == (n_deep-1):
+                net = slim.conv2d(net, 32, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="conv_{}_1".format(i))
+                net = slim.conv2d(net, 8, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="conv_{}_2".format(i))
+            else:
+                net = slim.conv2d(net, 64, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="conv_{}_1".format(i))
+                net = slim.conv2d(net, 64, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="conv_{}_2".format(i))
+            if i < (n_deep-2):
+                net = slim.max_pool2d(net, sample, scope="max_{}".format(i))
+                net = slim.max_pool2d(net, sample, scope="max_{}".format(i))
+            
+        # Midfield layer
+        print("start midfield encoding")
+        old_shape = net.get_shape()
+        o_s = old_shape.as_list()
+        feature_len = o_s[1]*o_s[2]*o_s[3]
+        net = tf.reshape(net, [-1, feature_len])     
+        net = slim.fully_connected(net, feature_len, scope="fc_1")
+        net = tf.reshape(net, [-1,old_shape[1],old_shape[2],old_shape[3]])
+        print("Midfield Dims:", net.get_shape())
+        
+        # DECODER
+        print("start decoder modeling")
+        for i in range(n_deep):
+            if i == (n_deep-1):
+                net = slim.conv2d_transpose(net, 32, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="dconv_{}_1".format(i))
+                net = slim.conv2d_transpose(net, 1, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="dconv_{}_2".format(i), activation_fn=None)
+            else:
+                net = slim.conv2d_transpose(net, 64, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="dconv_{}_1".format(i))
+                net = slim.conv2d_transpose(net, 64, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="dconv_{}_2".format(i))
+            if i < (n_deep-2):
+                o_s = net.get_shape().as_list()
+                net = tf.image.resize_nearest_neighbor(net, size=[o_s[1]*sample*sample,o_s[2]*sample*sample])
+
+        print("Output Dims:",net.get_shape())
+        self.segmentation_result = tf.identity(net, name="output")
+        self.final_result = self.segmentation_result
+
+        # MSE loss
+        output = self.segmentation_result
+        inputv = self.targets
+        mean = tf.reduce_mean(tf.square(output - inputv))
+        self.cost1 = mean;
+        self.train_op = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.001, 1, 20000, 0.000001)).minimize(self.cost1)
+        with tf.name_scope('accuracy'):
+            correct_pred = tf.py_func(msssim.MultiScaleSSIM, [self.final_result, self.targets], tf.float32)
+            self.accuracy = correct_pred
+            self.mse = tf.reduce_mean(tf.square(self.final_result - self.targets))
+
+            tf.summary.scalar('accuracy', self.accuracy)
+
+        self.summaries = tf.summary.merge_all()"""
         if layers == None:
             layers = []
             layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_1_1'))
@@ -57,13 +129,11 @@ class Network:
             layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_4_2'))
             #layers.append(MaxPool2d(kernel_size=2, name='max_4', skip_connection=skip_connections))
             
-            """layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_5_1'))
+            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_5_1'))
             layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_5_2'))
-            #layers.append(MaxPool2d(kernel_size=2, name='max_5', skip_connection=skip_connections))
             
-            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_6_1'))
+            """layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_6_1'))
             layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_6_2'))
-            layers.append(MaxPool2d(kernel_size=2, name='max_6', skip_connection=skip_connections))
 
             layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_7_1'))
             layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_7_2'))"""
@@ -76,11 +146,7 @@ class Network:
 
         self.layers = {}
 
-        if per_image_standardization:
-            list_of_images_norm = tf.map_fn(tf.image.per_image_standardization, self.inputs)
-            net = tf.stack(list_of_images_norm)
-        else:
-            net = self.inputs
+        net = self.inputs
         
         # ENCODER
         for layer in layers:
@@ -89,6 +155,14 @@ class Network:
 
         layers.reverse()
         Conv2d.reverse_global_variables()
+        
+        #midfield
+        old_shape = net.get_shape()
+        o_s = old_shape.as_list()
+        feature_len = o_s[1]*o_s[2]*o_s[3]
+        net = tf.reshape(net, [-1, feature_len])     
+        net = slim.fully_connected(net, feature_len, scope="fc_1")
+        net = tf.reshape(net, [-1,old_shape[1],old_shape[2],old_shape[3]])
 
         # DECODER
         layers_len = len(layers)
@@ -211,9 +285,7 @@ def draw_results(test_inputs, test_targets, test_segmentation, test_final, test_
         axs[1][example_i].imshow(test_targets[example_i].astype(np.float32), cmap='gray')
         axs[2][example_i].imshow(np.reshape(test_segmentation[example_i], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH]),cmap='gray')
         final = np.reshape(test_final[example_i], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
-        blur = cv2.bilateralFilter(final, 9, 75, 75)
-        blurred = np.array([0 if x < 0.1 else x for x in blur.flatten()])
-        axs[3][example_i].imshow(np.reshape(blurred, [network.IMAGE_HEIGHT, network.IMAGE_WIDTH]),cmap='gray')
+        axs[3][example_i].imshow(final,cmap='gray')
 
     buf = io.BytesIO()
     plt.savefig(buf, format='png')
@@ -229,7 +301,7 @@ def draw_results(test_inputs, test_targets, test_segmentation, test_final, test_
 
 
 def train():
-    BATCH_SIZE = 256
+    BATCH_SIZE = 128
 
     network = Network()
 
@@ -263,16 +335,13 @@ def train():
 
                 start = time.time()
                 batch_inputs, batch_targets = dataset.next_batch()
-                batch_inputs = np.reshape(batch_inputs,
-                                          (dataset.batch_size, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
-                batch_targets = np.reshape(batch_targets,
-                                           (dataset.batch_size, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
+                batch_inputs = np.reshape(batch_inputs,(dataset.batch_size, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
+                batch_targets = np.reshape(batch_targets,(dataset.batch_size, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
 
                 batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
 
-                cost1, stage1, _ = sess.run([network.cost1, network.segmentation_result, network.train_op],
-                                   feed_dict={network.inputs: batch_inputs, network.targets: batch_targets,
-                                              network.is_training: True})
+                cost1, stage1, stage2, _ = sess.run([network.cost1, network.segmentation_result, network.final_result, network.train_op],
+                                   feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
                 end = time.time()
                 print('{}/{}, epoch: {}, mse: {}, batch time: {}'.format(batch_num,
                                                                           n_epochs * dataset.num_batches_in_epoch(),
@@ -287,9 +356,7 @@ def train():
                     test_inputs = np.multiply(test_inputs, 1.0 / 255)
 
                     summary, test_accuracy, mse = sess.run([network.summaries, network.accuracy, network.mse],
-                                                      feed_dict={network.inputs: test_inputs,
-                                                                 network.targets: test_targets,
-                                                                 network.is_training: False})
+                                                      feed_dict={network.inputs: test_inputs,network.targets: test_targets,network.is_training: False})
 
                     summary_writer.add_summary(summary, batch_num)
 
@@ -303,7 +370,7 @@ def train():
                     print("Best accuracy: {} in batch {}".format(max_acc[0], max_acc[1]))
                     print("Total time: {}".format(time.time() - global_start))
                     
-                    if mse <= min_mse[0] and mse < 5300:
+                    """if mse <= min_mse[0] and mse < 5300:
                         train_dataset, paths, tam = dataset.all_train_batches()
                         for i in range(tam+1):
                             batch = train_dataset[BATCH_SIZE*i:BATCH_SIZE*(i+1)]
@@ -324,9 +391,7 @@ def train():
                                 plt.close(fig)
                                 del fig
                                 gc.collect()
-                        print("All test_set exported")
-                                
-
+                        print("All test_set exported")"""
 
                     # Plot example reconstructions
                     n_examples = 12

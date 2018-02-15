@@ -38,79 +38,6 @@ class Network:
     IMAGE_CHANNELS = 1
 
     def __init__(self, layers=None, skip_connections=True):
-        """self.inputs = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.IMAGE_CHANNELS],
-                                     name='inputs')
-        self.targets = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, 1], name='targets')
-        self.is_training = tf.placeholder_with_default(False, [], name='is_training')
-        self.description = ""
-
-        self.layers = {}
-
-        if per_image_standardization:
-            list_of_images_norm = tf.map_fn(tf.image.per_image_standardization, self.inputs)
-            net = tf.stack(list_of_images_norm)
-        else:
-            net = self.inputs
-        
-        n_deep = 4
-        sample = 2;
-        winit = tf.truncated_normal_initializer(stddev=0.01)
-        wreg = slim.l2_regularizer(0.0005)
-        # ENCODER
-        print("Input Dims:",net.get_shape())
-        print("start encoder modeling")
-        for i in range(n_deep):
-            if i == (n_deep-1):
-                net = slim.conv2d(net, 32, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="conv_{}_1".format(i))
-                net = slim.conv2d(net, 8, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="conv_{}_2".format(i))
-            else:
-                net = slim.conv2d(net, 64, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="conv_{}_1".format(i))
-                net = slim.conv2d(net, 64, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="conv_{}_2".format(i))
-            if i < (n_deep-2):
-                net = slim.max_pool2d(net, sample, scope="max_{}".format(i))
-                net = slim.max_pool2d(net, sample, scope="max_{}".format(i))
-            
-        # Midfield layer
-        print("start midfield encoding")
-        old_shape = net.get_shape()
-        o_s = old_shape.as_list()
-        feature_len = o_s[1]*o_s[2]*o_s[3]
-        net = tf.reshape(net, [-1, feature_len])     
-        net = slim.fully_connected(net, feature_len, scope="fc_1")
-        net = tf.reshape(net, [-1,old_shape[1],old_shape[2],old_shape[3]])
-        print("Midfield Dims:", net.get_shape())
-        
-        # DECODER
-        print("start decoder modeling")
-        for i in range(n_deep):
-            if i == (n_deep-1):
-                net = slim.conv2d_transpose(net, 32, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="dconv_{}_1".format(i))
-                net = slim.conv2d_transpose(net, 1, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="dconv_{}_2".format(i), activation_fn=None)
-            else:
-                net = slim.conv2d_transpose(net, 64, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="dconv_{}_1".format(i))
-                net = slim.conv2d_transpose(net, 64, 7, 1, weights_initializer=winit, weights_regularizer=wreg, scope="dconv_{}_2".format(i))
-            if i < (n_deep-2):
-                o_s = net.get_shape().as_list()
-                net = tf.image.resize_nearest_neighbor(net, size=[o_s[1]*sample*sample,o_s[2]*sample*sample])
-
-        print("Output Dims:",net.get_shape())
-        self.segmentation_result = tf.identity(net, name="output")
-        self.final_result = self.segmentation_result
-
-        # MSE loss
-        output = self.segmentation_result
-        inputv = self.targets
-        mean = tf.reduce_mean(tf.square(output - inputv))
-        self.cost1 = mean;
-        self.train_op = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.001, 1, 20000, 0.000001)).minimize(self.cost1)
-        with tf.name_scope('accuracy'):
-            correct_pred = tf.py_func(msssim.MultiScaleSSIM, [self.final_result, self.targets], tf.float32)
-            self.accuracy = correct_pred
-            self.mse = tf.reduce_mean(tf.square(self.final_result - self.targets))
-
-            tf.summary.scalar('accuracy', self.accuracy)
-
-        self.summaries = tf.summary.merge_all()"""
         if layers == None:
             layers = []
             layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_1_1'))
@@ -160,9 +87,13 @@ class Network:
         old_shape = net.get_shape()
         o_s = old_shape.as_list()
         feature_len = o_s[1]*o_s[2]*o_s[3]
-        net = tf.reshape(net, [-1, feature_len])     
-        net = slim.fully_connected(net, feature_len, scope="fc_1")
-        net = tf.reshape(net, [-1,old_shape[1],old_shape[2],old_shape[3]])
+        for i in range(3):
+            net = tf.reshape(net, [-1, feature_len])
+            net = slim.fully_connected(net, feature_len, scope="fc_{}".format(i+1))
+            net = tf.reshape(net, [-1,old_shape[1],old_shape[2],old_shape[3]])
+            toAdd = net
+            net = slim.repeat(net, 2, slim.conv2d, 1, [3,3], scope="block{}".format(i+1))
+            net = tf.add(toAdd, net)
 
         # DECODER
         layers_len = len(layers)
@@ -310,16 +241,14 @@ def train():
     # create directory for saving models
     #os.makedirs(os.path.join('save', network.description, timestamp))
 
-    dataset = Dataset(folder='data{}_{}'.format(network.IMAGE_HEIGHT, network.IMAGE_WIDTH), include_hair=False,
-                      batch_size=BATCH_SIZE)
+    dataset = Dataset(folder='data{}_{}'.format(network.IMAGE_HEIGHT, network.IMAGE_WIDTH), include_hair=False, batch_size=BATCH_SIZE)
 
     inputs, targets = dataset.next_batch()
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
 
-        summary_writer = tf.summary.FileWriter('{}/{}-{}'.format('logs', network.description, timestamp),
-                                               graph=tf.get_default_graph())
+        summary_writer = tf.summary.FileWriter('{}/{}-{}'.format('logs', network.description, timestamp), graph=tf.get_default_graph())
         saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
 
         test_accuracies = []
@@ -343,9 +272,7 @@ def train():
                 cost1, stage1, stage2, _ = sess.run([network.cost1, network.segmentation_result, network.final_result, network.train_op],
                                    feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
                 end = time.time()
-                print('{}/{}, epoch: {}, mse: {}, batch time: {}'.format(batch_num,
-                                                                          n_epochs * dataset.num_batches_in_epoch(),
-                                                                          epoch_i, cost1, round(end - start,5)))
+                print('{}/{}, epoch: {}, mse: {}, batch time: {}'.format(batch_num, n_epochs * dataset.num_batches_in_epoch(), epoch_i, cost1, round(end - start,5)))
 
                 if batch_num % 100 == 0 or batch_num == n_epochs * dataset.num_batches_in_epoch():
                     test_inputs, test_targets = dataset.test_set

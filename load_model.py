@@ -24,6 +24,7 @@ import datetime
 import io
 import utils
 import gc
+import tensorflow.contrib.slim as slim
 
 np.set_printoptions(threshold=np.nan)
 
@@ -50,6 +51,16 @@ class Network:
             
             layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_4_1'))
             layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_4_2'))
+            #layers.append(MaxPool2d(kernel_size=2, name='max_4', skip_connection=skip_connections))
+            
+            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_5_1'))
+            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_5_2'))
+            
+            """layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_6_1'))
+            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_6_2'))
+
+            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_7_1'))
+            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_7_2'))"""
 
         self.inputs = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.IMAGE_CHANNELS],
                                      name='inputs')
@@ -59,11 +70,7 @@ class Network:
 
         self.layers = {}
 
-        if per_image_standardization:
-            list_of_images_norm = tf.map_fn(tf.image.per_image_standardization, self.inputs)
-            net = tf.stack(list_of_images_norm)
-        else:
-            net = self.inputs
+        net = self.inputs
         
         # ENCODER
         for layer in layers:
@@ -72,6 +79,16 @@ class Network:
 
         layers.reverse()
         Conv2d.reverse_global_variables()
+        
+        #midfield
+        old_shape = net.get_shape()
+        o_s = old_shape.as_list()
+        feature_len = o_s[1]*o_s[2]*o_s[3]
+        net = tf.reshape(net, [-1, feature_len])     
+        net = slim.fully_connected(net, feature_len, scope="fc_1")
+        net = slim.fully_connected(net, feature_len, scope="fc_2")
+        net = slim.fully_connected(net, feature_len, scope="fc_3")        
+        net = tf.reshape(net, [-1,old_shape[1],old_shape[2],old_shape[3]])
 
         # DECODER
         layers_len = len(layers)
@@ -80,6 +97,8 @@ class Network:
                 self.segmentation_result = layer.create_layer_reversed(net, prev_layer=self.layers[layer.name], last_layer=True)
             else:
                 net = layer.create_layer_reversed(net, prev_layer=self.layers[layer.name])
+
+        self.final_result = self.segmentation_result
 
 class Dataset:
     def __init__(self, batch_size, folder='data128x128'):
@@ -91,7 +110,7 @@ class Dataset:
 
         self.pointer = 0
 
-    def file_paths_to_images(self, folder, files_list, mode="train"):
+    def file_paths_to_images(self, folder, files_list):
         inputs = []
         in_path = []
 
@@ -147,7 +166,7 @@ def load():
     network = Network()
     saver = tf.train.Saver()
     
-    dataset = Dataset(folder='data128_128/inputs/train', batch_size=256)
+    dataset = Dataset(folder='data128_128/inputs/test', batch_size=1)
     
     with tf.Session() as sess:
         saver.restore(sess, "save/checkpoint.data-0")
@@ -168,7 +187,7 @@ def load():
             image = np.array(image[0])
             for j in range(image.shape[0]):
                 save_image = np.resize(image[j], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
-                path = "result/{}/{}".format("export",paths[j])
+                path = "result/{}/{}".format("inputs",paths[j])
                 saveImage(save_image, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, path)
                 print("Salvando {} em {}s ({} de {})".format(paths[j], total_time, count, len(dataset.train_inputs)))
                 count += 1

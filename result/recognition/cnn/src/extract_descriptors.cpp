@@ -68,7 +68,7 @@ void showNMat(Mat img, int n, int m = 0){
 }
 
 int main(int argc, char const *argv[]) {
-	string path_output = "../../inputs/";
+	string path_output = "../../history/enc-3fc-dec/";
 	string path_input = "../../gt_rede/";
 	vector<string> paths_in = loadDataset(path_input);
 	sort(paths_in.begin(), paths_in.end());

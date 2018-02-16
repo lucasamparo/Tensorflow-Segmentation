@@ -6,4 +6,5 @@ figure*.jpg
 logs/
 save/
 image_plot/
+*.tar.gz
 *.caffemodel

@@ -37,7 +37,7 @@ class Network:
     IMAGE_WIDTH = 128
     IMAGE_CHANNELS = 1
 
-    def __init__(self, layers=None, skip_connections=True):
+    def __init__(self, layers=None, skip_connections=False):
         if layers == None:
             layers = []
             layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_1_1'))
@@ -49,22 +49,9 @@ class Network:
             layers.append(MaxPool2d(kernel_size=2, name='max_2', skip_connection=skip_connections))
 
             layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_3_1'))
-            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_3_2'))
-            layers.append(MaxPool2d(kernel_size=2, name='max_3', skip_connection=skip_connections))
+            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_3_2'))            
+            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_3_3'))
             
-            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_4_1'))
-            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_4_2'))
-            #layers.append(MaxPool2d(kernel_size=2, name='max_4', skip_connection=skip_connections))
-            
-            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_5_1'))
-            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_5_2'))
-            
-            """layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_6_1'))
-            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_6_2'))
-
-            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_7_1'))
-            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_7_2'))"""
-
         self.inputs = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.IMAGE_CHANNELS],
                                      name='inputs')
         self.targets = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, 1], name='targets')
@@ -82,6 +69,25 @@ class Network:
 
         layers.reverse()
         Conv2d.reverse_global_variables()
+        """net = slim.conv2d(net, 64, 7, scope="conv_1_1", stride=2)
+        net = slim.conv2d(net, 64, 7, scope="conv_1_2", stride=1, activation_fn=None)
+        net = layers[0].create_layer(net)
+        
+        a = net
+        net = slim.conv2d(net, 64, 7, scope="conv_2_1", stride=1)
+        net = slim.conv2d(net, 64, 7, scope="conv_2_2", stride=1, activation_fn=None)
+        net = tf.add(a,net)
+        net = layers[1].create_layer(net)
+        
+        a = net
+        net = slim.conv2d(net, 64, 7, scope="conv_3_1", stride=1)
+        net = slim.conv2d(net, 64, 7, scope="conv_3_2", stride=1, activation_fn=None)
+        net = tf.add(a,net)
+
+        a = net
+        net = slim.conv2d(net, 64, 7, scope="conv_4_1", stride=1)
+        net = slim.conv2d(net, 64, 7, scope="conv_4_2", stride=1, activation_fn=None)
+        net = tf.add(a,net)  """      
         
         #midfield
         old_shape = net.get_shape()
@@ -102,6 +108,20 @@ class Network:
                 self.segmentation_result = layer.create_layer_reversed(net, prev_layer=self.layers[layer.name], last_layer=True)
             else:
                 net = layer.create_layer_reversed(net, prev_layer=self.layers[layer.name])
+        """net = slim.conv2d(net, 64, 7, scope="dconv_1_1", stride=1)
+        net = slim.conv2d(net, 64, 7, scope="dconv_1_2", stride=1)
+        
+        net = slim.conv2d(net, 64, 7, scope="dconv_2_1", stride=1)
+        net = slim.conv2d(net, 64, 7, scope="dconv_2_2", stride=1)
+        
+        net = layers[1].create_layer_reversed(net)
+        net = slim.conv2d(net, 64, 7, scope="dconv_3_1", stride=1)
+        net = slim.conv2d(net, 64, 7, scope="dconv_3_2", stride=1)
+
+        net = layers[0].create_layer_reversed(net)    
+        net = slim.conv2d(net, 64, 7, scope="dconv_4_1", stride=1)
+        net = slim.conv2d(net, 1, 7, scope="dconv_4_2", stride=1, activation_fn=None)
+        net = MaxPool2d(kernel_size=2, name='max_3', skip_connection=skip_connections).create_layer_reversed(net)"""
 
         self.final_result = self.segmentation_result
 
@@ -143,6 +163,17 @@ class Dataset:
         self.test_inputs, self.test_paths, self.test_targets = self.file_paths_to_images(folder, test_files, mode="test")
 
         self.pointer = 0
+        self.permutation = np.random.permutation(len(self.train_inputs))
+        
+    def progress(self, count, total, status=''):
+        bar_len = 60
+        filled_len = int(round(bar_len * count / float(total)))
+
+        percents = round(100.0 * count / float(total), 1)
+        bar = '=' * filled_len + '-' * (bar_len - filled_len)
+
+        sys.stdout.write('[%s] %s%s ...%s\r' % (bar, percents, '%', status))
+        sys.stdout.flush()
 
     def file_paths_to_images(self, folder, files_list, mode="train"):
         inputs = []
@@ -150,7 +181,8 @@ class Dataset:
         in_path = []
         test_path = []
 
-        for file in files_list:
+        for count,file in enumerate(files_list):
+            self.progress(count, len(files_list), status="Carregando imagens de {}".format(mode))
             input_image = os.path.join(folder, 'inputs/{}'.format(mode), file)
             output_image = os.path.join(folder, 'targets/{}'.format(mode), file)
             in_path.append(os.path.join('inputs/{}'.format(mode), file))
@@ -180,11 +212,7 @@ class Dataset:
         return int(math.floor(len(self.train_inputs) / self.batch_size))
 
     def reset_batch_pointer(self):
-        permutation = np.random.permutation(len(self.train_inputs))
-        self.train_inputs = [self.train_inputs[i] for i in permutation]
-        self.train_paths = [self.train_inputs[i] for i in permutation]
-        self.train_targets = [self.train_targets[i] for i in permutation]
-
+        self.permutation = np.random.permutation(len(self.train_inputs))
         self.pointer = 0
 
     def next_batch(self):
@@ -192,8 +220,8 @@ class Dataset:
         targets = []
         
         for i in range(self.batch_size):
-            inputs.append(np.array(self.train_inputs[self.pointer + i]))
-            targets.append(np.array(self.train_targets[self.pointer + i]))
+            inputs.append(np.array(self.train_inputs[self.permutation[self.pointer + i]]))
+            targets.append(np.array(self.train_targets[self.permutation[self.pointer + i]]))
 
         self.pointer += self.batch_size
 
@@ -232,7 +260,7 @@ def draw_results(test_inputs, test_targets, test_segmentation, test_final, test_
 
 
 def train():
-    BATCH_SIZE = 128
+    BATCH_SIZE = 256
 
     network = Network()
 

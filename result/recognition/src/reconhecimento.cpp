@@ -459,23 +459,23 @@ int main(int argc, const char *argv[]) {
 	else
 		cout << "Mean face loaded." << endl;
 
-	vector<string> p = loadDataset(path_output);
+	/*vector<string> p = loadDataset(path_output);
 
 	for(int i = 0; i < p.size(); i++){
 		Mat test = imread(path_output+p[i]+".png");
 		Mat aligned = alignImages(test, mean);	
-	}
+	}*/
 
 	//imshow("Teste", test);
 	//imshow("Alinhada", aligned);
 	//imshow("Media", mean);
 	//waitKey(0);
 
-	/*cout << "Processing Recognition Algorithms" << endl;
+	cout << "Processing Recognition Algorithms" << endl;
 	lbphFacesRecog(path_input, path_output, mean);
 	eigenFacesRecog(path_input, path_output, mean);
 	fisherFacesRecog(path_input, path_output, mean);
-	cout << "Facial Recognition Finished" << endl;*/
+	cout << "Facial Recognition Finished" << endl;
 
 	return 0;
 }

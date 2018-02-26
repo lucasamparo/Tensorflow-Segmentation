@@ -68,8 +68,8 @@ void showNMat(Mat img, int n, int m = 0){
 }
 
 int main(int argc, char const *argv[]) {
-	string path_output = "../../history/enc-3fc-dec/";
-	string path_input = "../../gt_rede/";
+	string path_output = "../history/enc-3fc-dec/";
+	string path_input = "../gt_rede/";
 	vector<string> paths_in = loadDataset(path_input);
 	sort(paths_in.begin(), paths_in.end());
 	vector<string> paths_out = loadDataset(path_output);
@@ -154,10 +154,8 @@ int main(int argc, char const *argv[]) {
 	cout << "#### Resultados ####" << endl;
 	int acc = 0;
 	for(int i = 0; i < paths_in.size(); i++){
-		if(certo[i] > 0){
-			acc += certo[i];
-			cout << i+1 << "-N >> Certos: " << certo[i] << ". Acumulado: " << acc << endl;
-		}
+		acc += certo[i];
+		cout << i+1 << "-N >> Certos: " << certo[i] << ". Acumulado: " << acc << endl;
 	}
 
 	return 0;

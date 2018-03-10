@@ -215,13 +215,17 @@ class Dataset:
         self.permutation = np.random.permutation(len(self.train_inputs))
         self.pointer = 0
 
-    def next_batch(self):
+    def next_batch(self,pretrain=False):
         inputs = []
         targets = []
         
         for i in range(self.batch_size):
-            inputs.append(np.array(self.train_inputs[self.permutation[self.pointer + i]]))
-            targets.append(np.array(self.train_targets[self.permutation[self.pointer + i]]))
+            if pretrain:
+                inputs.append(np.array(self.train_targets[self.permutation[self.pointer + i]]))
+                targets.append(np.array(self.train_targets[self.permutation[self.pointer + i]]))
+            else:
+                inputs.append(np.array(self.train_inputs[self.permutation[self.pointer + i]]))
+                targets.append(np.array(self.train_targets[self.permutation[self.pointer + i]]))
 
         self.pointer += self.batch_size
 
@@ -279,11 +283,72 @@ def train():
         summary_writer = tf.summary.FileWriter('{}/{}-{}'.format('logs', network.description, timestamp), graph=tf.get_default_graph())
         saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
 
+        #Pre treino
+        n_epochs = 1000
+        print("Iniciando Pretreino")
+        for epoch_i in range(n_epochs):
+            dataset.reset_batch_pointer()
+
+            for batch_i in range(dataset.num_batches_in_epoch()):
+                batch_num = epoch_i * dataset.num_batches_in_epoch() + batch_i + 1
+
+                start = time.time()
+                batch_inputs, batch_targets = dataset.next_batch(pretrain=True)
+                batch_inputs = np.reshape(batch_inputs,(dataset.batch_size, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
+                batch_targets = np.reshape(batch_targets,(dataset.batch_size, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
+
+                batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
+
+                cost1, stage1, stage2, _ = sess.run([network.cost1, network.segmentation_result, network.final_result, network.train_op],
+                                   feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
+                end = time.time()
+                print('{}/{}, epoch: {}, mse: {}, batch time: {}'.format(batch_num, n_epochs * dataset.num_batches_in_epoch(), epoch_i, cost1, round(end - start,5)))
+
+                if batch_num % 100 == 0 or batch_num == n_epochs * dataset.num_batches_in_epoch():
+                    test_inputs, test_targets = dataset.test_set
+                    test_inputs, test_targets = test_targets[:100], test_targets[:100]
+
+                    test_inputs = np.reshape(test_inputs, (-1, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
+                    test_targets = np.reshape(test_targets, (-1, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
+                    test_inputs = np.multiply(test_inputs, 1.0 / 255)
+
+                    summary, test_accuracy, mse = sess.run([network.summaries, network.accuracy, network.mse],
+                                                      feed_dict={network.inputs: test_inputs,network.targets: test_targets,network.is_training: False})
+
+                    summary_writer.add_summary(summary, batch_num)
+
+                    # Plot example reconstructions
+                    n_examples = 12
+                    test_inputs, test_targets = dataset.test_targets[:n_examples], dataset.test_targets[:n_examples]
+                    test_inputs = np.multiply(test_inputs, 1.0 / 255)
+
+                    test_segmentation, test_final = sess.run([network.segmentation_result, network.final_result], feed_dict={
+                        network.inputs: np.reshape(test_inputs,[n_examples, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1])})
+
+                    # Prepare the plot
+                    test_plot_buf = draw_results(test_inputs, test_targets, test_segmentation, test_final, test_accuracy, network,
+                                                 "pre_{}".format(batch_num))
+
+                    # Convert PNG buffer to TF image
+                    image = tf.image.decode_png(test_plot_buf.getvalue(), channels=4)
+
+                    # Add the batch dimension
+                    image = tf.expand_dims(image, 0)
+
+                    # Add image summary
+                    image_summary_op = tf.summary.image("plot", image)
+
+                    image_summary = sess.run(image_summary_op)
+                    summary_writer.add_summary(image_summary)
+
+        
+
         test_accuracies = []
         test_mse = []
         # Fit all training data
         n_epochs = 3000
         global_start = time.time()
+        print("Iniciando treino real")
         for epoch_i in range(n_epochs):
             dataset.reset_batch_pointer()
 

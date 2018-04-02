@@ -33,8 +33,7 @@ class Network:
     IMAGE_WIDTH = 128
     IMAGE_CHANNELS = 1
 
-    def __init__(self, layers=None, per_image_standardization=False, batch_norm=True, skip_connections=True):
-
+    def __init__(self, layers=None, skip_connections=False):
         if layers == None:
             layers = []
             layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_1_1'))
@@ -46,22 +45,9 @@ class Network:
             layers.append(MaxPool2d(kernel_size=2, name='max_2', skip_connection=skip_connections))
 
             layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_3_1'))
-            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_3_2'))
-            layers.append(MaxPool2d(kernel_size=2, name='max_3', skip_connection=skip_connections))
+            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_3_2'))            
+            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_3_3'))
             
-            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_4_1'))
-            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_4_2'))
-            #layers.append(MaxPool2d(kernel_size=2, name='max_4', skip_connection=skip_connections))
-            
-            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_5_1'))
-            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_5_2'))
-            
-            """layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_6_1'))
-            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_6_2'))
-
-            layers.append(Conv2d(kernel_size=7, strides=[1, 2, 2, 1], output_channels=64, name='conv_7_1'))
-            layers.append(Conv2d(kernel_size=7, strides=[1, 1, 1, 1], output_channels=64, name='conv_7_2'))"""
-
         self.inputs = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, self.IMAGE_CHANNELS],
                                      name='inputs')
         self.targets = tf.placeholder(tf.float32, [None, self.IMAGE_HEIGHT, self.IMAGE_WIDTH, 1], name='targets')
@@ -78,17 +64,19 @@ class Network:
             self.description += "{}".format(layer.get_description())
 
         layers.reverse()
-        Conv2d.reverse_global_variables()
+        Conv2d.reverse_global_variables()   
         
         #midfield
         old_shape = net.get_shape()
         o_s = old_shape.as_list()
         feature_len = o_s[1]*o_s[2]*o_s[3]
-        net = tf.reshape(net, [-1, feature_len])     
-        net = slim.fully_connected(net, feature_len, scope="fc_1")
-        net = slim.fully_connected(net, feature_len, scope="fc_2")
-        net = slim.fully_connected(net, feature_len, scope="fc_3")        
-        net = tf.reshape(net, [-1,old_shape[1],old_shape[2],old_shape[3]])
+        for i in range(3):
+            net = tf.reshape(net, [-1, feature_len])
+            net = slim.fully_connected(net, feature_len, scope="fc_{}".format(i+1))
+            net = tf.reshape(net, [-1,old_shape[1],old_shape[2],old_shape[3]])
+            toAdd = net
+            net = slim.repeat(net, 2, slim.conv2d, 1, [3,3], scope="block{}".format(i+1))
+            net = tf.add(toAdd, net)
 
         # DECODER
         layers_len = len(layers)
@@ -166,9 +154,13 @@ def load():
     network = Network()
     saver = tf.train.Saver()
     
-    dataset = Dataset(folder='data128_128/inputs/test', batch_size=1)
+    dataset = Dataset(folder='result/groundtruth/renorm/', batch_size=1)
     
-    with tf.Session() as sess:
+    config = tf.ConfigProto(
+            device_count = {'GPU' : 0}
+    )
+    
+    with tf.Session(config=config) as sess:
         saver.restore(sess, "save/checkpoint.data-0")
         print("Model Restored")
         
@@ -187,7 +179,7 @@ def load():
             image = np.array(image[0])
             for j in range(image.shape[0]):
                 save_image = np.resize(image[j], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
-                path = "result/{}/{}".format("inputs",paths[j])
+                path = "result/gt_rede/{}/{}".format("renorm",paths[j])
                 saveImage(save_image, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, path)
                 print("Salvando {} em {}s ({} de {})".format(paths[j], total_time, count, len(dataset.train_inputs)))
                 count += 1

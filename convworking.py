@@ -161,6 +161,7 @@ class Dataset:
 
         self.train_inputs, self.train_paths, self.train_targets = self.file_paths_to_images(folder, train_files)
         self.test_inputs, self.test_paths, self.test_targets = self.file_paths_to_images(folder, test_files, mode="test")
+        self.valid_inputs, self.valid_paths, self.valid_targets = self.file_paths_to_images(folder, validation_files, mode="valid")
 
         self.pointer = 0
         self.permutation = np.random.permutation(len(self.train_inputs))
@@ -236,7 +237,7 @@ class Dataset:
 
     @property
     def test_set(self):
-        return np.array(self.test_inputs, dtype=np.uint8), np.array(self.test_targets, dtype=np.uint8)
+        return np.array(self.valid_inputs, dtype=np.uint8), np.array(self.valid_targets, dtype=np.uint8)
 
 
 def draw_results(test_inputs, test_targets, test_segmentation, test_final, test_accuracy, network, batch_num):
@@ -246,6 +247,8 @@ def draw_results(test_inputs, test_targets, test_segmentation, test_final, test_
     for example_i in range(n_examples_to_plot):
         axs[0][example_i].imshow(test_inputs[example_i], cmap='gray')
         axs[1][example_i].imshow(test_targets[example_i].astype(np.float32), cmap='gray')
+        #test_segmentation[test_segmentation > 1] = 0.99
+        #test_segmentation[test_segmentation < 0] = 0
         axs[2][example_i].imshow(np.reshape(test_segmentation[example_i], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH]),cmap='gray')
         final = np.reshape(test_final[example_i], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
         axs[3][example_i].imshow(final,cmap='gray')
@@ -284,7 +287,7 @@ def train():
         saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
 
         #Pre treino
-        n_epochs = 1000
+        n_epochs = 50
         print("Iniciando Pretreino")
         for epoch_i in range(n_epochs):
             dataset.reset_batch_pointer()

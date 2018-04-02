@@ -449,8 +449,8 @@ Mat meanFace(string dataset_path){
 }
 
 int main(int argc, const char *argv[]) {
-	string path_input = "../gt_rede/";
-	string path_output = "../history/enc-dec/";
+	string path_input = "../groundtruth/renorm/";
+	string path_output = "../expressional/renorm/";
 
 	
 	Mat mean = imread("meanface.png");

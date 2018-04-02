@@ -1,0 +1,3 @@
+/home/lucasamparo/dataset_reduce/rms/CMakeFiles/edit_cache.dir
+/home/lucasamparo/dataset_reduce/rms/CMakeFiles/rebuild_cache.dir
+/home/lucasamparo/dataset_reduce/rms/CMakeFiles/rms.dir

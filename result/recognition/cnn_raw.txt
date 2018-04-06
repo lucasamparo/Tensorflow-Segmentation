@@ -1,0 +1,17 @@
+#### Resultados ####
+1-N >> Certos: 622. Acumulado: 622
+2-N >> Certos: 22. Acumulado: 644
+3-N >> Certos: 2. Acumulado: 646
+4-N >> Certos: 4. Acumulado: 650
+5-N >> Certos: 14. Acumulado: 664
+6-N >> Certos: 2. Acumulado: 666
+7-N >> Certos: 0. Acumulado: 666
+8-N >> Certos: 0. Acumulado: 666
+9-N >> Certos: 0. Acumulado: 666
+10-N >> Certos: 0. Acumulado: 666
+11-N >> Certos: 2. Acumulado: 668
+12-N >> Certos: 0. Acumulado: 668
+13-N >> Certos: 0. Acumulado: 668
+14-N >> Certos: 0. Acumulado: 668
+15-N >> Certos: 0. Acumulado: 668
+16-N >> Certos: 0. Acumulado: 668

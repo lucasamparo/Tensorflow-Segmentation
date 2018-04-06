@@ -88,7 +88,7 @@ void processRMS(string path_gt, string path_exp, string label){
 	vector<double> rms;
 
 	for(int i = 0; i < express.size(); i++){
-		string p = express[i].substr(0,7);
+		string p = express[i];
 		Mat a = imread(path_gt+"/"+p+".png");
 		Mat b = imread(path_exp+"/"+express[i]+".png");
 		double val = computeRMS(a,b);
@@ -108,7 +108,7 @@ void processMSSIM(string path_gt, string path_exp, string label){
 	vector<double> rms;
 
 	for(int i = 0; i < express.size(); i++){
-		string p = express[i].substr(0,7);
+		string p = express[i];
 		Mat a = imread(path_gt+"/"+p+".png");
 		Mat b = imread(path_exp+"/"+express[i]+".png");
 		double val = getMSSIM(a,b)[0];
@@ -123,12 +123,14 @@ void processMSSIM(string path_gt, string path_exp, string label){
 }
 
 int main(){	
-	processRMS("../../expression-removal/result/gt_rede/renorm/", "../../expression-removal/result/history/enc-3fc-dec-auto-renorm/", "Faces da Rede");
-	processRMS("../../expression-removal/result/groundtruth/renorm/", "../../expression-removal/result/expressional/renorm/", "Faces sem Rede");
+	processRMS("../gt_rede/new/", "../history/enc-3fc-dec-new/", "Faces da Rede");
+	processRMS("../groundtruth/new/", "../expressional/new/", "Faces sem Rede");
 
-	processMSSIM("../../expression-removal/result/gt_rede/renorm/", "../../expression-removal/result/history/enc-3fc-dec-auto-renorm/", "Faces da Rede");
-	processMSSIM("../../expression-removal/result/groundtruth/renorm/", "../../expression-removal/result/expressional/renorm/", "Faces sem Rede");
-//	processRMS("../../expression-removal/result/groundtruth", "../../expression-removal/result/history/enc-3fc-dec", "Remoção da Rede x Neutras Sem rede");
+	processMSSIM("../gt_rede/new/", "../history/enc-3fc-dec-new/", "Faces da Rede");
+	processMSSIM("../groundtruth/new/", "../expressional/new/", "Faces sem Rede");
+	
+	processRMS("../groundtruth/new", "../history/enc-3fc-dec-new", "Remoção da Rede x Neutras Sem rede");
+	processMSSIM("../groundtruth/new", "../history/enc-3fc-dec-new", "Remoção da Rede x Neutras Sem rede");
 
 	return 0;	
 }

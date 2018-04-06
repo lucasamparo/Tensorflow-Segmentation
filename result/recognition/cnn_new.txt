@@ -1,0 +1,17 @@
+#### Resultados ####
+1-N >> Certos: 440. Acumulado: 440
+2-N >> Certos: 112. Acumulado: 552
+3-N >> Certos: 38. Acumulado: 590
+4-N >> Certos: 6. Acumulado: 596
+5-N >> Certos: 16. Acumulado: 612
+6-N >> Certos: 6. Acumulado: 618
+7-N >> Certos: 14. Acumulado: 632
+8-N >> Certos: 10. Acumulado: 642
+9-N >> Certos: 6. Acumulado: 648
+10-N >> Certos: 2. Acumulado: 650
+11-N >> Certos: 8. Acumulado: 658
+12-N >> Certos: 4. Acumulado: 662
+13-N >> Certos: 6. Acumulado: 668
+14-N >> Certos: 0. Acumulado: 668
+15-N >> Certos: 0. Acumulado: 668
+16-N >> Certos: 0. Acumulado: 668

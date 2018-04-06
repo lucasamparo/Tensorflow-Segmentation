@@ -1,0 +1,6 @@
+Mean face loaded.
+Processing Recognition Algorithms
+Matching using LBPH >> Correct: 406. Wrong: 262
+Matching using EigenFaces >> Correct: 424. Wrong: 244
+Matching using FisherFaces >> Correct: 410. Wrong: 258
+Facial Recognition Finished

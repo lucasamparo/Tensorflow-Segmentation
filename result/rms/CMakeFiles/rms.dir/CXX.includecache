@@ -6,7 +6,7 @@
 
 #IncludeRegexTransform: 
 
-/home/lucasamparo/dataset_reduce/rms/rms.cpp
+/home/lucasamparo/expression-removal/result/rms/rms.cpp
 iostream
 -
 opencv2/opencv.hpp

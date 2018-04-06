@@ -68,9 +68,10 @@ void showNMat(Mat img, int n, int m = 0){
 }
 
 int main(int argc, char const *argv[]) {
-	string path_output = "../history/enc-3fc-dec-auto-renorm/";
-	string path_input = "../gt_rede/renorm/";
+	string path_output = "../expressional/new/";
+	string path_input = "../groundtruth/new/";
 	vector<string> paths_in = loadDataset(path_input);
+	vector<int> ids(100);
 	sort(paths_in.begin(), paths_in.end());
 	vector<string> paths_out = loadDataset(path_output);
 	sort(paths_out.begin(), paths_out.end());
@@ -78,14 +79,19 @@ int main(int argc, char const *argv[]) {
 	Detector face_detector;
 	vector<data> dataset;
 	int detected = 0;
+	Mat modelo = imread(path_input+"042_000_1557.png");
 	for(string p:paths_in){
 		Mat input = imread(path_input+p+".png");
+		int id = stoi(p.substr(0,3));
+		if(ids[id] > 1)
+			continue;
 		int padding = 64;
-		Mat img, desc;
+		Mat img, model, desc;
 		copyMakeBorder( input, img, padding, padding, padding, padding, BORDER_CONSTANT, Scalar(0,0,0) );
-		face_detector(img);
+		copyMakeBorder( modelo, model, padding, padding, padding, padding, BORDER_CONSTANT, Scalar(0,0,0) );
+		face_detector(model);
 		Descriptor deepGod;
-		ofstream file_desc("descriptors/"+p+".txt");	
+		ofstream file_desc("descriptors/"+p+".txt");
 		if(face_detector.num_faces() == 1) {
 			vector<Point> color_landmarks = face_detector.get_landmarks(0);
 			cvtColor(img, img, CV_BGR2GRAY);
@@ -98,7 +104,8 @@ int main(int argc, char const *argv[]) {
 			file_desc.close();	
 			data d;
 			d.desc = desc;
-			d.name = p;
+			d.name = p.substr(0,3);
+			ids[id]++;
 			dataset.push_back(d);
 			cout << "D (" << p << "): ";
 			showNMat(desc, 10);
@@ -110,9 +117,10 @@ int main(int argc, char const *argv[]) {
 	for(string p:paths_out){
 		Mat output = imread(path_output+p+".png");
 		int padding = 64;
-		Mat img, desc;
+		Mat img, model, desc;
 		copyMakeBorder( output, img, padding, padding, padding, padding, BORDER_CONSTANT, Scalar(0,0,0) );
-		face_detector(img);
+		copyMakeBorder( modelo, model, padding, padding, padding, padding, BORDER_CONSTANT, Scalar(0,0,0) );
+		face_detector(model);
 		Descriptor deepGod;
 		vector<score> scores;
 		if(face_detector.num_faces() == 1) {
@@ -140,20 +148,17 @@ int main(int argc, char const *argv[]) {
 				for(int j = 0; j < i; j++){
 					if(scores[j].name.substr(0,3) == p.substr(0,3)){
 						id = j;
+						break;
 					}
 				}
 			}
 			certo[id]++;
-		} else {
-			cvtColor(img, img, CV_BGR2GRAY);
-			resize(img, img, Size(220, 220));
-			Mat normalized_face = img.clone();			
-			desc = deepGod(normalized_face).clone();
 		}
 	}
+
 	cout << "#### Resultados ####" << endl;
 	int acc = 0;
-	for(int i = 0; i < paths_in.size(); i++){
+	for(int i = 0; i < detected; i++){
 		acc += certo[i];
 		cout << i+1 << "-N >> Certos: " << certo[i] << ". Acumulado: " << acc << endl;
 	}

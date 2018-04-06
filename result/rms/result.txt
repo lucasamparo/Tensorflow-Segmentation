@@ -1,0 +1,6 @@
+RMS (Faces da Rede): 0.0191574
+RMS (Faces sem Rede): 0.0733908
+MSSIM (Faces da Rede): 0.972475
+MSSIM (Faces sem Rede): 0.822961
+RMS (Remoção da Rede x Neutras Sem rede): 0.100739
+MSSIM (Remoção da Rede x Neutras Sem rede): 0.512639

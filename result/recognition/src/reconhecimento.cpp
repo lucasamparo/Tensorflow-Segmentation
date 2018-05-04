@@ -16,6 +16,13 @@ using namespace cv;
 using namespace cv::face;
 using namespace std;
 
+struct rocitem{
+	int falso_pos = 0;
+	int verda_pos = 0;
+	int falso_neg = 0;
+	int verda_neg = 0;
+};
+
 void writeCSV(string filename, vector<auto> data, vector<string> labels){
 	ofstream myfile;
 	myfile.open(filename.c_str());
@@ -366,13 +373,17 @@ void lbphFacesRecog(string path_input, string path_output, Mat mean){
 	Ptr<LBPHFaceRecognizer> model = createLBPHFaceRecognizer();
 	model->train(images, labels);
 
-	int correto = 0, errado = 0;
+	double tr_ini = 30, tr_fim = 50;
+	double tr = (tr_fim - tr_ini)/100.0;
+	vector<rocitem> roc(100);
+	int id = 0;
+	
 	for(int i = 0; i < paths_out.size(); i++){
 		Mat img = imread(path_output+paths_out[i]+".png", 0);
 		Ptr<StandardCollector> collector = StandardCollector::create();
 		model->predict( img, collector );
 		vector< pair<int, double> > pares = collector->getResults();
-		for(int x = 0; x < pares.size()-1; x++){
+		/*for(int x = 0; x < pares.size()-1; x++){
 			for(int y = x; y < pares.size(); y++){
 				if(pares[x].second > pares[y].second){
 					pair<int, double> t = pares[x];
@@ -390,14 +401,48 @@ void lbphFacesRecog(string path_input, string path_output, Mat mean){
 			} else {
 				j++;
 			}
-		} while(!find || j == rankn.size());
+		} while(!find || j == rankn.size());*/
+		id = 0;
+		for(int j = 0; j < pares.size(); j++){
+			for(double r = tr_ini; r <= tr_fim; r += tr){
+				if(id > roc.size()-1)
+					continue;
+				if(pares[j].second > r){
+					if(pares[j].first == stoi(paths_out[i].substr(0,3)))
+						roc[id].falso_neg++;
+					else
+						roc[id].verda_neg++;
+				} else {
+					if(pares[j].first == stoi(paths_out[i].substr(0,3)))
+						roc[id].verda_pos++;
+					else
+						roc[id].falso_pos++;
+				}
+				id++;
+			}
+		}
 	}
 	cout << "Matching using LBPH: " << endl;
-	int acc = 0;
+	/*int acc = 0;
 	for(int i = 0; i < rankn.size(); i++){
 		acc += rankn[i];
 		cout << acc << ",";
+	}*/
+	stringstream ssx, ssy, c;
+	for(int i = 0; i < roc.size(); i++){
+		c << i;
+		ssx << setprecision(5) << roc[i].falso_pos/float(roc[i].falso_pos + roc[i].falso_neg);
+		ssy << setprecision(5) << roc[i].verda_pos/float(roc[i].verda_pos + roc[i].verda_neg);
+		if( i < roc.size() - 1){
+			c << ",";
+			ssx << ",";
+			ssy << ",";
+		}
 	}
+
+	cout << c.str() << endl;
+	cout << ssx.str() << endl;
+	cout << ssy.str() << endl;
 }
 
 void fisherFacesRecog(string path_input, string path_output, Mat mean){
@@ -421,13 +466,18 @@ void fisherFacesRecog(string path_input, string path_output, Mat mean){
 	Ptr<BasicFaceRecognizer> model = createFisherFaceRecognizer();
 	model->train(images, labels);
 
+	double tr_ini = 500, tr_fim = 2000;
+	double tr = (tr_fim - tr_ini)/100.0;
+	vector<rocitem> roc(100);
+	int id = 0;
+
 	int correto = 0, errado = 0;
 	for(int i = 0; i < paths_out.size(); i++){
 		Mat img = imread(path_output+paths_out[i]+".png", 0);
 		Ptr<StandardCollector> collector = StandardCollector::create();
 		model->predict( img, collector );
 		vector< pair<int, double> > pares = collector->getResults();
-		for(int x = 0; x < pares.size()-1; x++){
+		/*for(int x = 0; x < pares.size()-1; x++){
 			for(int y = x; y < pares.size(); y++){
 				if(pares[x].second > pares[y].second){
 					pair<int, double> t = pares[x];
@@ -445,14 +495,45 @@ void fisherFacesRecog(string path_input, string path_output, Mat mean){
 			} else {
 				j++;
 			}
-		} while(!find || j == rankn.size());
+		} while(!find || j == rankn.size());*/
+		id = 0;
+		for(int j = 0; j < pares.size(); j++){
+			for(double r = tr_ini; r <= tr_fim; r += tr){
+				if(id > roc.size()-1)
+					continue;
+				if(pares[j].second > r){
+					if(pares[j].first == stoi(paths_out[i].substr(0,3)))
+						roc[id].falso_neg++;
+					else
+						roc[id].verda_neg++;
+				} else {
+					if(pares[j].first == stoi(paths_out[i].substr(0,3)))
+						roc[id].verda_pos++;
+					else
+						roc[id].falso_pos++;
+				}
+				id++;
+			}
+		}
 	}
 	cout << "Matching using FisherFaces: " << endl;
-	int acc = 0;
+	/*int acc = 0;
 	for(int i = 0; i < rankn.size(); i++){
 		acc += rankn[i];
 		cout << acc << ",";
+	}*/
+	stringstream ssx, ssy;
+	for(int i = 0; i < roc.size(); i++){
+		ssx << setprecision(5) << roc[i].falso_pos/float(roc[i].falso_pos + roc[i].falso_neg);
+		ssy << setprecision(5) << roc[i].verda_pos/float(roc[i].verda_pos + roc[i].verda_neg);
+		if( i < roc.size() - 1){
+			ssx << ",";
+			ssy << ",";
+		}
 	}
+
+	cout << ssx.str() << endl;
+	cout << ssy.str() << endl;
 }
 
 void eigenFacesRecog(string path_input, string path_output, Mat mean){
@@ -476,13 +557,18 @@ void eigenFacesRecog(string path_input, string path_output, Mat mean){
 	Ptr<BasicFaceRecognizer> model = createEigenFaceRecognizer();
 	model->train(images, labels);
 
+	double tr_ini = 500, tr_fim = 1500;
+	double tr = (tr_fim - tr_ini)/100.0;
+	vector<rocitem> roc(100);
+	int id = 0;
+
 	int correto = 0, errado = 0;
 	for(int i = 0; i < paths_out.size(); i++){
 		Mat img = imread(path_output+paths_out[i]+".png", 0);
 		Ptr<StandardCollector> collector = StandardCollector::create();
 		model->predict( img, collector );
 		vector< pair<int, double> > pares = collector->getResults();
-		for(int x = 0; x < pares.size()-1; x++){
+		/*for(int x = 0; x < pares.size()-1; x++){
 			for(int y = x; y < pares.size(); y++){
 				if(pares[x].second > pares[y].second){
 					pair<int, double> t = pares[x];
@@ -500,14 +586,45 @@ void eigenFacesRecog(string path_input, string path_output, Mat mean){
 			} else {
 				j++;
 			}
-		} while(!find || j == rankn.size());
+		} while(!find || j == rankn.size());*/
+		id = 0;
+		for(int j = 0; j < pares.size(); j++){
+			for(double r = tr_ini; r <= tr_fim; r += tr){
+				if(id > roc.size()-1)
+					continue;
+				if(pares[j].second > r){
+					if(pares[j].first == stoi(paths_out[i].substr(0,3)))
+						roc[id].falso_neg++;
+					else
+						roc[id].verda_neg++;
+				} else {
+					if(pares[j].first == stoi(paths_out[i].substr(0,3)))
+						roc[id].verda_pos++;
+					else
+						roc[id].falso_pos++;
+				}
+				id++;
+			}
+		}
 	}
 	cout << "Matching using EigenFaces: " << endl;
-	int acc = 0;
+	/*int acc = 0;
 	for(int i = 0; i < rankn.size(); i++){
 		acc += rankn[i];
 		cout << acc << ",";
+	}*/
+	stringstream ssx, ssy;
+	for(int i = 0; i < roc.size(); i++){
+		ssx << setprecision(5) << roc[i].falso_pos/float(roc[i].falso_pos + roc[i].falso_neg);
+		ssy << setprecision(5) << roc[i].verda_pos/float(roc[i].verda_pos + roc[i].verda_neg);
+		if( i < roc.size() - 1){
+			ssx << ",";
+			ssy << ",";
+		}
 	}
+
+	cout << ssx.str() << endl;
+	cout << ssy.str() << endl;
 }
 
 Mat meanFace(string dataset_path){
@@ -534,9 +651,12 @@ Mat meanFace(string dataset_path){
 }
 
 int main(int argc, const char *argv[]) {
-	string path_input = "../gt_rede/new/";
-	string path_output = "../history/enc-3fc-dec-new/";
-
+	//Expressional	
+	string path_input = "../groundtruth/new/";
+	string path_output = "../expressional/new/";
+	//Removed
+	//string path_input = "../gt_rede/new/";
+	//string path_output = "../history/enc-3fc-dec-new/";
 	
 	Mat mean = imread("meanface.png");
 	if(mean.empty())

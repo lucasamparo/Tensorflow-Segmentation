@@ -37,6 +37,9 @@ build/extract_descriptors.o: src/extract_descriptors.cpp include/descriptor.hpp
 build/recog.o: src/reconhecimento.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@ $(INCLUDE)
 
+build/all_recog.o: src/all_recog.cpp src/extract_descriptors.cpp include/descriptor.hpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@ $(INCLUDE)
+
 cnn.out: build/extract_descriptors.o build/detector.o build/util.o build/normalize.o build/descriptor.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
@@ -47,6 +50,9 @@ load.out: build/loadrealsense.o build/load.o build/aligner.o build/detector.o bu
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 common.out: build/recog.o build/detector.o build/util.o build/normalize.o
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
+
+all_recog.out: build/all_recog.o build/detector.o build/util.o build/normalize.o build/descriptor.o
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 build/calculate_psafe.o: src/calculate_psafe.cpp

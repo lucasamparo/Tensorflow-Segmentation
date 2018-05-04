@@ -5,6 +5,7 @@
 #include <bits/stdc++.h>
 #include <dirent.h>
 #include <functional>
+#include <sstream>
 
 #include <opencv2/opencv.hpp>
 #include <descriptor.hpp>
@@ -24,6 +25,13 @@ struct score{
 	bool operator > (const score& str) const{
 	        return (value > str.value);
     	}
+};
+
+struct rocitem{
+	int falso_pos = 0;
+	int verda_pos = 0;
+	int falso_neg = 0;
+	int verda_neg = 0;
 };
 
 vector<string> loadDataset(string p){
@@ -68,8 +76,13 @@ void showNMat(Mat img, int n, int m = 0){
 }
 
 int main(int argc, char const *argv[]) {
+
+	//Expressas
 	string path_output = "../expressional/new/";
 	string path_input = "../groundtruth/new/";
+	//Rede
+	//string path_output = "../history/enc-3fc-dec-new/";
+	//string path_input = "../gt_rede/new/";
 	vector<string> paths_in = loadDataset(path_input);
 	vector<int> ids(100);
 	sort(paths_in.begin(), paths_in.end());
@@ -112,6 +125,7 @@ int main(int argc, char const *argv[]) {
 		}
 	}
 	cout << "Dataset loaded. " << detected << " truly detected on set." << endl;
+	vector<rocitem> roc(int((0.95-0.55)/0.01));
 
 	vector<int> certo(paths_in.size()), errado(paths_in.size());
 	for(string p:paths_out){
@@ -137,31 +151,55 @@ int main(int argc, char const *argv[]) {
 				s1.value = s;
 				scores.push_back(s1);
 			}
-			sort(scores.begin(), scores.end(), greater<score>());
-			cout << "Sample " << p << ". Best match: " << endl;
+			//sort(scores.begin(), scores.end(), greater<score>());
+			/*cout << "Sample " << p << ". Best match: " << endl;
 			cout << "       " << scores[0].value << " (" << scores[0].name.substr(0,3) << " | " << p.substr(0,3) << ")" << endl;
 			cout << "       " << scores[1].value << " (" << scores[1].name.substr(0,3) << " | " << p.substr(0,3) << ")" << endl;
-			cout << "       " << scores[2].value << " (" << scores[2].name.substr(0,3) << " | " << p.substr(0,3) << ")" << endl;
+			cout << "       " << scores[2].value << " (" << scores[2].name.substr(0,3) << " | " << p.substr(0,3) << ")" << endl;*/
 
-			int id = 0;
 			for(int i = 0; i < scores.size(); i++){
 				for(int j = 0; j < i; j++){
-					if(scores[j].name.substr(0,3) == p.substr(0,3)){
-						id = j;
-						break;
+					int id = 0;
+					for(double r = 0.55; r <= 0.951; r += 0.01){
+						if(id > roc.size()-1)
+							continue;
+						//cout << predicao[j].distance << " " << r << " " << predicao[j].label << " " << path[i].substr(0,3) << endl;
+						if(scores[j].value > r){
+							if(scores[j].name.substr(0,3) == p.substr(0,3))
+								roc[id].falso_neg++;
+							else
+								roc[id].verda_neg++;
+						} else {
+							if(scores[j].name.substr(0,3) == p.substr(0,3))
+								roc[id].verda_pos++;
+							else
+								roc[id].falso_pos++;
+						}
+						id++;
 					}
 				}
 			}
-			certo[id]++;
+			cout << p << " processado" << endl;
 		}
 	}
 
-	cout << "#### Resultados ####" << endl;
+	/*cout << "#### Resultados ####" << endl;
 	int acc = 0;
 	for(int i = 0; i < detected; i++){
 		acc += certo[i];
 		cout << i+1 << "-N >> Certos: " << certo[i] << ". Acumulado: " << acc << endl;
+	}*/
+
+	stringstream ssx, ssy, c;
+	for(int i = 0; i < roc.size(); i++){
+		c << i << ",";
+		ssx << setprecision(5) << roc[i].falso_pos/float(roc[i].falso_pos + roc[i].falso_neg) << ",";
+		ssy << setprecision(5) << roc[i].verda_pos/float(roc[i].verda_pos + roc[i].verda_neg) << ",";
 	}
+
+	cout << c.str() << endl;
+	cout << ssx.str() << endl;
+	cout << ssy.str() << endl;
 
 	return 0;
 }

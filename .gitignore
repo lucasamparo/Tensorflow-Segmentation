@@ -9,3 +9,4 @@ data128_128/
 image_plot/
 *.tar.gz
 *.caffemodel
+recog/

@@ -154,7 +154,7 @@ def load():
     network = Network()
     saver = tf.train.Saver()
     
-    dataset = Dataset(folder='data128_128/targets/test/', batch_size=1)
+    dataset = Dataset(folder='data128_128/inputs/test/', batch_size=1)
     
     config = tf.ConfigProto(
             device_count = {'GPU' : 0}
@@ -179,7 +179,7 @@ def load():
             image = np.array(image[0])
             for j in range(image.shape[0]):
                 save_image = np.resize(image[j], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
-                path = "result/gt_rede/{}/{}".format("new",paths[j])
+                path = "result/{}/{}".format("inputs",paths[j])
                 saveImage(save_image, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, path)
                 print("Salvando {} em {}s ({} de {})".format(paths[j], total_time, count, len(dataset.train_inputs)))
                 count += 1

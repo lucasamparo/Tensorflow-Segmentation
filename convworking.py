@@ -29,6 +29,8 @@ import utils
 import gc
 import freeze_graph as fg
 import tensorflow.contrib.slim as slim
+from recog_model import inception_resnet_v1 as model
+import load_recog as recog
 
 np.set_printoptions(threshold=np.nan)
 
@@ -68,38 +70,17 @@ class Network:
             self.description += "{}".format(layer.get_description())
 
         layers.reverse()
-        Conv2d.reverse_global_variables()
-        """net = slim.conv2d(net, 64, 7, scope="conv_1_1", stride=2)
-        net = slim.conv2d(net, 64, 7, scope="conv_1_2", stride=1, activation_fn=None)
-        net = layers[0].create_layer(net)
-        
-        a = net
-        net = slim.conv2d(net, 64, 7, scope="conv_2_1", stride=1)
-        net = slim.conv2d(net, 64, 7, scope="conv_2_2", stride=1, activation_fn=None)
-        net = tf.add(a,net)
-        net = layers[1].create_layer(net)
-        
-        a = net
-        net = slim.conv2d(net, 64, 7, scope="conv_3_1", stride=1)
-        net = slim.conv2d(net, 64, 7, scope="conv_3_2", stride=1, activation_fn=None)
-        net = tf.add(a,net)
-
-        a = net
-        net = slim.conv2d(net, 64, 7, scope="conv_4_1", stride=1)
-        net = slim.conv2d(net, 64, 7, scope="conv_4_2", stride=1, activation_fn=None)
-        net = tf.add(a,net)  """      
+        Conv2d.reverse_global_variables()    
         
         #midfield
         old_shape = net.get_shape()
         o_s = old_shape.as_list()
         feature_len = o_s[1]*o_s[2]*o_s[3]
+        net = tf.reshape(net, [-1, feature_len])
         for i in range(3):
-            net = tf.reshape(net, [-1, feature_len])
             net = slim.fully_connected(net, feature_len, scope="fc_{}".format(i+1))
-            net = tf.reshape(net, [-1,old_shape[1],old_shape[2],old_shape[3]])
-            toAdd = net
-            net = slim.repeat(net, 2, slim.conv2d, 1, [3,3], scope="block{}".format(i+1))
-            net = tf.add(toAdd, net)
+            self.fc_vars = tf.contrib.framework.get_variables("fc_{}".format(i+1))
+        net = tf.reshape(net, [-1, o_s[1], o_s[2], o_s[3]])
 
         # DECODER
         layers_len = len(layers)
@@ -108,34 +89,33 @@ class Network:
                 self.segmentation_result = layer.create_layer_reversed(net, prev_layer=self.layers[layer.name], last_layer=True)
             else:
                 net = layer.create_layer_reversed(net, prev_layer=self.layers[layer.name])
-        """net = slim.conv2d(net, 64, 7, scope="dconv_1_1", stride=1)
-        net = slim.conv2d(net, 64, 7, scope="dconv_1_2", stride=1)
-        
-        net = slim.conv2d(net, 64, 7, scope="dconv_2_1", stride=1)
-        net = slim.conv2d(net, 64, 7, scope="dconv_2_2", stride=1)
-        
-        net = layers[1].create_layer_reversed(net)
-        net = slim.conv2d(net, 64, 7, scope="dconv_3_1", stride=1)
-        net = slim.conv2d(net, 64, 7, scope="dconv_3_2", stride=1)
 
-        net = layers[0].create_layer_reversed(net)    
-        net = slim.conv2d(net, 64, 7, scope="dconv_4_1", stride=1)
-        net = slim.conv2d(net, 1, 7, scope="dconv_4_2", stride=1, activation_fn=None)
-        net = MaxPool2d(kernel_size=2, name='max_3', skip_connection=skip_connections).create_layer_reversed(net)"""
+        self.variables = tf.trainable_variables()
+
 
         self.final_result = self.segmentation_result
+
+        #rec1 = Recognizer(tf.concat([self.final_result,self.inputs], axis=0))
+        #rec2 = Recognizer(tf.concat([self.final_result,self.targets], axis=0))
 
         # MSE loss
         # Expression Removal with MSE loss function
         output = self.segmentation_result
         inputv = self.targets
         mean = tf.reduce_mean(tf.square(output - inputv))
-        self.cost1 = mean;
+        #rec1_loss = rec1.computeRecog()
+        #rec2_loss = rec2.computeRecog()
+        #self.cost1 = rec1_loss + rec2_loss;
+        #self.cost_rec = tf.reduce_mean(rec1_loss);
+        self.cost_mse = mean;
+        #self.cost_final = self.cost_mse + self.cost_rec
         # Reconstruct with MS_SSIM loss function
         #self.cost2 = 1 - ssim.tf_ms_ssim(self.final_result, self.targets)
         #self.cost2 = tf.reduce_mean(tf.square(self.final_result - self.targets))
         #self.cost = 50*self.cost1 + self.cost2
-        self.train_op = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.01, 1, 10000, 0.0001)).minimize(self.cost1)
+        #self.train_op = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.01, 1, 10000, 0.0001)).minimize(self.cost_final)
+        #self.train_op_rec = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.1, 1, 10000, 0.01)).minimize(self.cost_rec)
+        self.train_op_mse = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.01, 1, 10000, 0.0001)).minimize(self.cost_mse)
         #self.train_op2 = tf.train.AdamOptimizer(learning_rate=0.001).minimize(self.cost2)
         with tf.name_scope('accuracy'):
             # argmax_probs = tf.round(self.segmentation_result)  # 0x1
@@ -149,6 +129,25 @@ class Network:
 
         self.summaries = tf.summary.merge_all()
 
+class Recognizer:
+	'''
+	Classe do Reconhecedor
+	Input: Duas imagens de face
+	Output: Métrica de similaridade entre elas
+	Arquitetura: InceptionNet do FaceNet
+	'''
+	def __init__(self, inputs):		
+		self.modelo, *_ = model(inputs, False)
+
+		with tf.Session() as sess:
+			sess.run(tf.global_variables_initializer())
+			recog.load_model("recog")
+
+	def computeRecog(self):
+		f1, f2 = tf.split(self.modelo, num_or_size_splits=2)
+		
+		self.recog_rate = tf.reduce_sum((f1 - f2) ** 2)
+		return self.recog_rate
 
 class Dataset:
     def __init__(self, batch_size, folder='data128x128', include_hair=False):
@@ -284,10 +283,10 @@ def train():
         sess.run(tf.global_variables_initializer())
 
         summary_writer = tf.summary.FileWriter('{}/{}-{}'.format('logs', network.description, timestamp), graph=tf.get_default_graph())
-        saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
+        saver = tf.train.Saver(network.variables, max_to_keep=None)
 
         #Pre treino
-        n_epochs = 50
+        n_epochs = 10
         print("Iniciando Pretreino")
         for epoch_i in range(n_epochs):
             dataset.reset_batch_pointer()
@@ -302,53 +301,14 @@ def train():
 
                 batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
 
-                cost1, stage1, stage2, _ = sess.run([network.cost1, network.segmentation_result, network.final_result, network.train_op],
-                                   feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
+                cost1, _ = sess.run([network.cost_mse, network.train_op_mse],feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
                 end = time.time()
                 print('{}/{}, epoch: {}, mse: {}, batch time: {}'.format(batch_num, n_epochs * dataset.num_batches_in_epoch(), epoch_i, cost1, round(end - start,5)))
-
-                if batch_num % 100 == 0 or batch_num == n_epochs * dataset.num_batches_in_epoch():
-                    test_inputs, test_targets = dataset.test_set
-                    test_inputs, test_targets = test_targets[:100], test_targets[:100]
-
-                    test_inputs = np.reshape(test_inputs, (-1, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
-                    test_targets = np.reshape(test_targets, (-1, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
-                    test_inputs = np.multiply(test_inputs, 1.0 / 255)
-
-                    summary, test_accuracy, mse = sess.run([network.summaries, network.accuracy, network.mse],
-                                                      feed_dict={network.inputs: test_inputs,network.targets: test_targets,network.is_training: False})
-
-                    summary_writer.add_summary(summary, batch_num)
-
-                    # Plot example reconstructions
-                    n_examples = 12
-                    test_inputs, test_targets = dataset.test_targets[:n_examples], dataset.test_targets[:n_examples]
-                    test_inputs = np.multiply(test_inputs, 1.0 / 255)
-
-                    test_segmentation, test_final = sess.run([network.segmentation_result, network.final_result], feed_dict={
-                        network.inputs: np.reshape(test_inputs,[n_examples, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1])})
-
-                    # Prepare the plot
-                    test_plot_buf = draw_results(test_inputs, test_targets, test_segmentation, test_final, test_accuracy, network,
-                                                 "pre_{}".format(batch_num))
-
-                    # Convert PNG buffer to TF image
-                    image = tf.image.decode_png(test_plot_buf.getvalue(), channels=4)
-
-                    # Add the batch dimension
-                    image = tf.expand_dims(image, 0)
-
-                    # Add image summary
-                    image_summary_op = tf.summary.image("plot", image)
-
-                    image_summary = sess.run(image_summary_op)
-                    summary_writer.add_summary(image_summary)
 
         
 
         test_accuracies = []
         test_mse = []
-        # Fit all training data
         n_epochs = 3000
         global_start = time.time()
         print("Iniciando treino real")
@@ -365,8 +325,7 @@ def train():
 
                 batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
 
-                cost1, stage1, stage2, _ = sess.run([network.cost1, network.segmentation_result, network.final_result, network.train_op],
-                                   feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
+                cost1, _ = sess.run([network.cost_mse, network.train_op_mse],feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
                 end = time.time()
                 print('{}/{}, epoch: {}, mse: {}, batch time: {}'.format(batch_num, n_epochs * dataset.num_batches_in_epoch(), epoch_i, cost1, round(end - start,5)))
 
@@ -392,29 +351,6 @@ def train():
                     min_mse = min(test_mse)
                     print("Best accuracy: {} in batch {}".format(max_acc[0], max_acc[1]))
                     print("Total time: {}".format(time.time() - global_start))
-                    
-                    """if mse <= min_mse[0] and mse < 5300:
-                        train_dataset, paths, tam = dataset.all_train_batches()
-                        for i in range(tam+1):
-                            batch = train_dataset[BATCH_SIZE*i:BATCH_SIZE*(i+1)]
-                            p = paths[BATCH_SIZE*i:BATCH_SIZE*(i+1)]
-                            batch = np.multiply(batch, 1.0/255)
-                            image = sess.run([network.final_result], feed_dict={network.inputs: np.reshape(batch ,[-1, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1])})
-                            image = np.array(image[0])
-                            for j in range(image.shape[0]):
-                                save_image = np.resize(image[j], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
-                                fig = plt.figure(frameon=False, dpi=100)
-                                fig.set_size_inches(network.IMAGE_HEIGHT/100, network.IMAGE_WIDTH/100)
-                                ax = plt.Axes(fig, [0., 0., 1., 1.])
-                                ax.set_axis_off()
-                                fig.add_axes(ax)
-                                ax.imshow(save_image, cmap="gray")
-                                separated = p[j].split('/')
-                                fig.savefig("result/{}/{}".format(separated[0],separated[2]))
-                                plt.close(fig)
-                                del fig
-                                gc.collect()
-                        print("All test_set exported")"""
 
                     # Plot example reconstructions
                     n_examples = 12
@@ -446,7 +382,6 @@ def train():
                         minimal_graph = convert_variables_to_constants(sess, sess.graph_def, ["output"])
 
                         tf.train.write_graph(minimal_graph, '.', "save/minimal_graph.txt", as_text=True)
-                        saver = tf.train.Saver(tf.global_variables())
                         saver.save(sess,"save/checkpoint.data", global_step=0)
 
                         checkpoint_state_name = "checkpoint_state"

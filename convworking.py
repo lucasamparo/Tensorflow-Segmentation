@@ -95,7 +95,7 @@ class Network:
 
         self.final_result = self.segmentation_result
 
-        #rec1 = Recognizer(tf.concat([self.final_result,self.inputs], axis=0))
+        rec1 = Recognizer(tf.concat([self.final_result,self.inputs], axis=0))
         #rec2 = Recognizer(tf.concat([self.final_result,self.targets], axis=0))
 
         # MSE loss
@@ -103,10 +103,10 @@ class Network:
         output = self.segmentation_result
         inputv = self.targets
         mean = tf.reduce_mean(tf.square(output - inputv))
-        #rec1_loss = rec1.computeRecog()
+        rec1_loss = rec1.computeRecog()
         #rec2_loss = rec2.computeRecog()
         #self.cost1 = rec1_loss + rec2_loss;
-        #self.cost_rec = tf.reduce_mean(rec1_loss);
+        self.cost_rec = tf.reduce_mean(rec1_loss);
         self.cost_mse = mean;
         #self.cost_final = self.cost_mse + self.cost_rec
         # Reconstruct with MS_SSIM loss function
@@ -114,7 +114,7 @@ class Network:
         #self.cost2 = tf.reduce_mean(tf.square(self.final_result - self.targets))
         #self.cost = 50*self.cost1 + self.cost2
         #self.train_op = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.01, 1, 10000, 0.0001)).minimize(self.cost_final)
-        #self.train_op_rec = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.1, 1, 10000, 0.01)).minimize(self.cost_rec)
+        self.train_op_rec = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.1, 1, 10000, 0.01)).minimize(self.cost_rec)
         self.train_op_mse = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.01, 1, 10000, 0.0001)).minimize(self.cost_mse)
         #self.train_op2 = tf.train.AdamOptimizer(learning_rate=0.001).minimize(self.cost2)
         with tf.name_scope('accuracy'):
@@ -286,7 +286,7 @@ def train():
         saver = tf.train.Saver(network.variables, max_to_keep=None)
 
         #Pre treino
-        n_epochs = 10
+        n_epochs = 500
         print("Iniciando Pretreino")
         for epoch_i in range(n_epochs):
             dataset.reset_batch_pointer()
@@ -325,7 +325,7 @@ def train():
 
                 batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
 
-                cost1, _ = sess.run([network.cost_mse, network.train_op_mse],feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
+                cost1, _ = sess.run([network.cost_rec, network.train_op_rec],feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
                 end = time.time()
                 print('{}/{}, epoch: {}, mse: {}, batch time: {}'.format(batch_num, n_epochs * dataset.num_batches_in_epoch(), epoch_i, cost1, round(end - start,5)))
 
@@ -377,7 +377,7 @@ def train():
                     summary_writer.add_summary(image_summary)
 
                     print(test_accuracy , " " , max_acc[0])
-                    if test_accuracy >= max_acc[0]:
+                    if mse < 5000:
                         print("saving model...")
                         minimal_graph = convert_variables_to_constants(sess, sess.graph_def, ["output"])
 

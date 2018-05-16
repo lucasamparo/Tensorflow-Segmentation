@@ -96,10 +96,22 @@ void processRMS(string path_gt, string path_exp, string label){
 	}
 
 	double acc = 0;
+	double max_val = 0, min_val = 1000;
 	for(int i = 0; i < rms.size(); i++){
 		acc += rms[i];
+		max_val = max(max_val,rms[i]);
+		min_val = min(min_val,rms[i]);
 	}
-	cout << "RMS ("<< label << "): " << acc/rms.size() << endl;
+
+	double mean = acc/rms.size();
+	acc = 0;
+	for(int i = 0; i < rms.size(); i++){
+		acc += pow(rms[i]-mean,2);
+	}
+	double std_dev = acc/rms.size();
+
+	cout << "RMS ("<< label << "): "<< endl;
+	cout << "Mean: " << mean << " | Std. Deviation: " << std_dev << " | Max: " << max_val << " | Min: " << min_val << endl;
 }
 
 void processMSSIM(string path_gt, string path_exp, string label){
@@ -116,10 +128,22 @@ void processMSSIM(string path_gt, string path_exp, string label){
 	}
 
 	double acc = 0;
+	double max_val = 0, min_val = 1000;
 	for(int i = 0; i < rms.size(); i++){
 		acc += rms[i];
+		max_val = max(max_val,rms[i]);
+		min_val = min(min_val,rms[i]);
 	}
-	cout << "MSSIM ("<< label << "): " << acc/rms.size() << endl;
+
+	double mean = acc/rms.size();
+	acc = 0;
+	for(int i = 0; i < rms.size(); i++){
+		acc += pow(rms[i]-mean,2);
+	}
+	double std_dev = acc/rms.size();
+
+	cout << "MSSIM ("<< label << "): "<< endl;
+	cout << "Mean: " << mean << " | Std. Deviation: " << std_dev << " | Max: " << max_val << " | Min: " << min_val << endl;
 }
 
 int main(){	

@@ -1,0 +1,3 @@
+/home/lucasamparo/expression-removal/result/deprojection/CMakeFiles/edit_cache.dir
+/home/lucasamparo/expression-removal/result/deprojection/CMakeFiles/rebuild_cache.dir
+/home/lucasamparo/expression-removal/result/deprojection/CMakeFiles/deproj.dir

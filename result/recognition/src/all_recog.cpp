@@ -129,9 +129,9 @@ void lbphRecog(string path_gt, string path_img, string label){
 		if(gen.is_open() && imp.is_open()){
 			for(int x = 0; x < pares.size(); x++){
 				if(stoi(paths_out[i].substr(0,3)) == pares[x].first)
-					gen << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << pares[x].second << endl;
+					gen << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
 				else
-					imp << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << pares[x].second << endl;
+					imp << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
 			}
 			gen.close();
 			imp.close();
@@ -183,9 +183,9 @@ void eigenRecog(string path_gt, string path_img, string label){
 		if(gen.is_open() && imp.is_open()){
 			for(int x = 0; x < pares.size(); x++){
 				if(stoi(paths_out[i].substr(0,3)) == pares[x].first)
-					gen << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << pares[x].second << endl;
+					gen << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
 				else
-					imp << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << pares[x].second << endl;
+					imp << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
 			}
 			gen.close();
 			imp.close();
@@ -238,9 +238,9 @@ void fisherRecog(string path_gt, string path_img, string label){
 		if(gen.is_open() && imp.is_open()){
 			for(int x = 0; x < pares.size(); x++){
 				if(stoi(paths_out[i].substr(0,3)) == pares[x].first)
-					gen << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << pares[x].second << endl;
+					gen << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
 				else
-					imp << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << pares[x].second << endl;
+					imp << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
 			}
 			gen.close();
 			imp.close();

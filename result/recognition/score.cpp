@@ -8,7 +8,7 @@ int main(int argc, char ** argv) {
     string method = argv[1], source = argv[2];
     ifstream genuine_file(("matchs/genuine_"+method+"_"+source+".txt").c_str());
     std::vector<double> genuine_scores;
-    double a, max_val = 0;
+    double a, max_val = 0, min_val;
     int id1 = 0, id2 = 0, gen_discarded = 0;
     while (genuine_file >> id1 >> id2 >> a) {
         if (!a) {
@@ -17,6 +17,7 @@ int main(int argc, char ** argv) {
         }
         genuine_scores.push_back(a);
         max_val = max(a, max_val);
+	min_val = min(a, min_val);
     }
     ifstream impostor_file(("matchs/impostor_"+method+"_"+source+".txt").c_str());
     std::vector<double> impostor_scores;
@@ -28,6 +29,7 @@ int main(int argc, char ** argv) {
         }
         impostor_scores.push_back(a);
         max_val = max(a, max_val);
+	min_val = min(a, min_val);
     }
     cout << gen_discarded << " " << imp_discarded << endl;
     sort(genuine_scores.begin(), genuine_scores.end());
@@ -36,8 +38,8 @@ int main(int argc, char ** argv) {
     const int gen_size = genuine_scores.size();
     const int imp_size = impostor_scores.size();
     ofstream frr(("frr_"+method+"_"+source+".txt").c_str()), far(("far_"+method+"_"+source+".txt").c_str());
-    double step = max_val/100.0;
-    for (double score = 0; score < max_val; score += step) {
+    double step = (max_val-min_val)/100.0;
+    for (double score = min_val; score < max_val; score += step) {
         while (gen < gen_size && genuine_scores[gen] <= score)
             gen++;
         while (imp < imp_size && impostor_scores[imp] <= score)

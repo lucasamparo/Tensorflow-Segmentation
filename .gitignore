@@ -5,8 +5,10 @@ figure*.jpg
 *.pyc
 logs/
 save/
+saved_models/
 data128_128/
 image_plot/
 *.tar.gz
 *.caffemodel
 recog/
+*.zip

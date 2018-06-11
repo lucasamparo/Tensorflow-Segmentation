@@ -25,6 +25,8 @@ import io
 import utils
 import gc
 import tensorflow.contrib.slim as slim
+from recog_model import inception_resnet_v1 as model
+import load_recog as recog
 
 np.set_printoptions(threshold=np.nan)
 
@@ -64,19 +66,17 @@ class Network:
             self.description += "{}".format(layer.get_description())
 
         layers.reverse()
-        Conv2d.reverse_global_variables()   
+        Conv2d.reverse_global_variables()    
         
         #midfield
         old_shape = net.get_shape()
         o_s = old_shape.as_list()
         feature_len = o_s[1]*o_s[2]*o_s[3]
+        net = tf.reshape(net, [-1, feature_len])
         for i in range(3):
-            net = tf.reshape(net, [-1, feature_len])
             net = slim.fully_connected(net, feature_len, scope="fc_{}".format(i+1))
-            net = tf.reshape(net, [-1,old_shape[1],old_shape[2],old_shape[3]])
-            toAdd = net
-            net = slim.repeat(net, 2, slim.conv2d, 1, [3,3], scope="block{}".format(i+1))
-            net = tf.add(toAdd, net)
+            self.fc_vars = tf.contrib.framework.get_variables("fc_{}".format(i+1))
+        net = tf.reshape(net, [-1, o_s[1], o_s[2], o_s[3]])
 
         # DECODER
         layers_len = len(layers)
@@ -87,6 +87,27 @@ class Network:
                 net = layer.create_layer_reversed(net, prev_layer=self.layers[layer.name])
 
         self.final_result = self.segmentation_result
+
+        rec1 = Recognizer(self.final_result, reuse=tf.AUTO_REUSE)
+
+        self.variables = tf.contrib.framework.get_variables(scope="conv") + self.fc_vars + tf.contrib.framework.get_variables(scope="norm")
+
+class Recognizer:
+	'''
+	Classe do Reconhecedor
+	Input: Duas imagens de face
+	Output: Métrica de similaridade entre elas
+	Arquitetura: InceptionNet do FaceNet
+	'''
+	def __init__(self, inputs, reuse=None):		
+		self.modelo, *_ = model(inputs, False, reuse=reuse)
+
+		with tf.Session() as sess:
+			sess.run(tf.global_variables_initializer())
+			recog.load_model("recog")
+
+	def computeRecog(self):
+		return self.modelo
 
 class Dataset:
     def __init__(self, batch_size, folder='data128x128'):
@@ -152,7 +173,7 @@ def saveImage(image, height, width, path):
 
 def load():
     network = Network()
-    saver = tf.train.Saver()
+    saver = tf.train.Saver(var_list=network.variables)
     
     dataset = Dataset(folder='data128_128/inputs/test/', batch_size=1)
     
@@ -162,7 +183,8 @@ def load():
     
     with tf.Session(config=config) as sess:
         saver.restore(sess, "save/checkpoint.data-0")
-        print("Model Restored")
+        print("General Model Restored")
+        sess.run(tf.global_variables_initializer())
         
         dataset.reset_batch_pointer()
         count = 0

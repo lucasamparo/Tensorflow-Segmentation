@@ -90,38 +90,38 @@ class Network:
             else:
                 net = layer.create_layer_reversed(net, prev_layer=self.layers[layer.name])
 
+        # self.variables = tf.contrib.framework.get_variables(scope="conv") + self.fc_vars + tf.contrib.framework.get_variables(scope="norm")
         self.variables = tf.trainable_variables()
 
 
         self.final_result = self.segmentation_result
 
-        rec1 = Recognizer(tf.concat([self.final_result,self.inputs], axis=0))
-        #rec2 = Recognizer(tf.concat([self.final_result,self.targets], axis=0))
+        rec1 = Recognizer(self.final_result, reuse=tf.AUTO_REUSE)
+        rec2 = Recognizer(self.inputs, reuse=tf.AUTO_REUSE)
+        rec3 = Recognizer(self.targets, reuse=tf.AUTO_REUSE)
+
+        print(self.variables)
 
         # MSE loss
         # Expression Removal with MSE loss function
         output = self.segmentation_result
         inputv = self.targets
         mean = tf.reduce_mean(tf.square(output - inputv))
-        rec1_loss = rec1.computeRecog()
-        #rec2_loss = rec2.computeRecog()
-        #self.cost1 = rec1_loss + rec2_loss;
-        self.cost_rec = tf.reduce_mean(rec1_loss);
+        # Recognition feature sets
+        rec1_loss = rec1.modelo
+        rec2_loss = rec2.modelo
+        rec3_loss = rec3.modelo
+        output_weight1 = tf.constant(3000, shape=[], dtype=tf.float32)
+        output_weight2 = tf.constant(1000, shape=[], dtype=tf.float32)
+        cost_rec1 = tf.multiply(output_weight2, tf.reduce_sum(tf.reduce_mean(tf.abs(rec1_loss - rec2_loss), 0)))
+        cost_rec2 = tf.multiply(output_weight1, tf.reduce_sum(tf.reduce_mean(tf.abs(rec1_loss - rec3_loss), 0)))
+        # Cost based on recognition
+        self.cost_rec = cost_rec1 + cost_rec2
         self.cost_mse = mean;
-        #self.cost_final = self.cost_mse + self.cost_rec
-        # Reconstruct with MS_SSIM loss function
-        #self.cost2 = 1 - ssim.tf_ms_ssim(self.final_result, self.targets)
-        #self.cost2 = tf.reduce_mean(tf.square(self.final_result - self.targets))
-        #self.cost = 50*self.cost1 + self.cost2
-        #self.train_op = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.01, 1, 10000, 0.0001)).minimize(self.cost_final)
-        self.train_op_rec = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.1, 1, 10000, 0.01)).minimize(self.cost_rec)
+        self.train_op_rec = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.001, 1, 10000, 0.0001)).minimize(self.cost_rec)
         self.train_op_mse = tf.train.AdamOptimizer(learning_rate=tf.train.polynomial_decay(0.01, 1, 10000, 0.0001)).minimize(self.cost_mse)
-        #self.train_op2 = tf.train.AdamOptimizer(learning_rate=0.001).minimize(self.cost2)
         with tf.name_scope('accuracy'):
-            # argmax_probs = tf.round(self.segmentation_result)  # 0x1
-            # correct_pred = tf.cast(tf.equal(argmax_probs, self.targets), tf.float32)
             correct_pred = tf.py_func(msssim.MultiScaleSSIM, [self.final_result, self.targets], tf.float32)
-            #self.accuracy = tf.reduce_mean(correct_pred)
             self.accuracy = correct_pred
             self.mse = tf.reduce_mean(tf.square(self.final_result - self.targets))
 
@@ -136,18 +136,15 @@ class Recognizer:
 	Output: Métrica de similaridade entre elas
 	Arquitetura: InceptionNet do FaceNet
 	'''
-	def __init__(self, inputs):		
-		self.modelo, *_ = model(inputs, False)
+	def __init__(self, inputs, reuse=None):		
+		self.modelo, *_ = model(inputs, False, reuse=reuse)
 
 		with tf.Session() as sess:
 			sess.run(tf.global_variables_initializer())
 			recog.load_model("recog")
 
 	def computeRecog(self):
-		f1, f2 = tf.split(self.modelo, num_or_size_splits=2)
-		
-		self.recog_rate = tf.reduce_sum((f1 - f2) ** 2)
-		return self.recog_rate
+		return self.modelo
 
 class Dataset:
     def __init__(self, batch_size, folder='data128x128', include_hair=False):
@@ -231,8 +228,11 @@ class Dataset:
 
         return np.array(inputs, dtype=np.uint8), np.array(targets, dtype=np.uint8)
         
-    def all_train_batches(self):
-        return np.array(self.test_inputs, dtype=np.uint8), self.test_paths, len(self.test_inputs)//self.batch_size
+    def all_test_batches(self, mode = "input"):
+        if(mode == "input"):
+        	return np.array(self.test_inputs, dtype=np.uint8), self.test_paths, len(self.test_inputs)//self.batch_size
+        else:
+        	return np.array(self.test_targets, dtype=np.uint8), self.test_paths, len(self.test_inputs)//self.batch_size
 
     @property
     def test_set(self):
@@ -246,8 +246,6 @@ def draw_results(test_inputs, test_targets, test_segmentation, test_final, test_
     for example_i in range(n_examples_to_plot):
         axs[0][example_i].imshow(test_inputs[example_i], cmap='gray')
         axs[1][example_i].imshow(test_targets[example_i].astype(np.float32), cmap='gray')
-        #test_segmentation[test_segmentation > 1] = 0.99
-        #test_segmentation[test_segmentation < 0] = 0
         axs[2][example_i].imshow(np.reshape(test_segmentation[example_i], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH]),cmap='gray')
         final = np.reshape(test_final[example_i], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
         axs[3][example_i].imshow(final,cmap='gray')
@@ -273,7 +271,7 @@ def train():
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
 
     # create directory for saving models
-    #os.makedirs(os.path.join('save', network.description, timestamp))
+    # os.makedirs(os.path.join('save', network.description, timestamp))
 
     dataset = Dataset(folder='data{}_{}'.format(network.IMAGE_HEIGHT, network.IMAGE_WIDTH), include_hair=False, batch_size=BATCH_SIZE)
 
@@ -283,10 +281,10 @@ def train():
         sess.run(tf.global_variables_initializer())
 
         summary_writer = tf.summary.FileWriter('{}/{}-{}'.format('logs', network.description, timestamp), graph=tf.get_default_graph())
-        saver = tf.train.Saver(network.variables, max_to_keep=None)
+        saver = tf.train.Saver(var_list=network.variables, max_to_keep=10)
 
         #Pre treino
-        n_epochs = 500
+        n_epochs = 50
         print("Iniciando Pretreino")
         for epoch_i in range(n_epochs):
             dataset.reset_batch_pointer()
@@ -301,9 +299,9 @@ def train():
 
                 batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
 
-                cost1, _ = sess.run([network.cost_mse, network.train_op_mse],feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
+                cost1, rec,_ = sess.run([network.cost_mse, network.cost_rec, network.train_op_mse],feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
                 end = time.time()
-                print('{}/{}, epoch: {}, mse: {}, batch time: {}'.format(batch_num, n_epochs * dataset.num_batches_in_epoch(), epoch_i, cost1, round(end - start,5)))
+                print('{}/{}, epoch: {}, mse/rec: {}/{}, batch time: {}'.format(batch_num, n_epochs * dataset.num_batches_in_epoch(), epoch_i, cost1, rec, round(end - start,5)))
 
         
 
@@ -325,11 +323,15 @@ def train():
 
                 batch_inputs = np.multiply(batch_inputs, 1.0 / 255)
 
-                cost1, _ = sess.run([network.cost_rec, network.train_op_rec],feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
-                end = time.time()
-                print('{}/{}, epoch: {}, mse: {}, batch time: {}'.format(batch_num, n_epochs * dataset.num_batches_in_epoch(), epoch_i, cost1, round(end - start,5)))
+                if batch_num % 5 == 0:
+                	cost1, rec, _ = sess.run([network.cost_mse, network.cost_rec, network.train_op_rec],feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
+                else:
+                	cost1, rec, _ = sess.run([network.cost_mse, network.cost_rec, network.train_op_mse],feed_dict={network.inputs: batch_inputs, network.targets: batch_targets, network.is_training: True})
 
-                if batch_num % 100 == 0 or batch_num == n_epochs * dataset.num_batches_in_epoch():
+                end = time.time()
+                print('{}/{}, epoch: {}, mse/recog: {}/{}, batch time: {}'.format(batch_num, n_epochs * dataset.num_batches_in_epoch(), epoch_i, cost1, rec, round(end - start,5)))
+
+                if batch_num % 2000 == 0 or batch_num == n_epochs * dataset.num_batches_in_epoch():
                     test_inputs, test_targets = dataset.test_set
                     test_inputs, test_targets = test_inputs[:100], test_targets[:100]
 
@@ -337,12 +339,13 @@ def train():
                     test_targets = np.reshape(test_targets, (-1, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1))
                     test_inputs = np.multiply(test_inputs, 1.0 / 255)
 
-                    summary, test_accuracy, mse = sess.run([network.summaries, network.accuracy, network.mse],
+                    test_accuracy, mse = sess.run([network.accuracy, network.mse],
                                                       feed_dict={network.inputs: test_inputs,network.targets: test_targets,network.is_training: False})
 
-                    summary_writer.add_summary(summary, batch_num)
+                    #summary_writer.add_summary(summary, batch_num)
 
                     print('Step {}, test accuracy: {}'.format(batch_num, test_accuracy))
+                    min_mse = (0,0)
                     test_accuracies.append((test_accuracy, batch_num))
                     test_mse.append((mse, batch_num))
                     print("Accuracies in time: ", [test_accuracies[x][0] for x in range(len(test_accuracies))])
@@ -376,8 +379,55 @@ def train():
                     image_summary = sess.run(image_summary_op)
                     summary_writer.add_summary(image_summary)
 
-                    print(test_accuracy , " " , max_acc[0])
-                    if mse < 5000:
+                    if batch_num > 38000 and mse < 2500:
+                    #if True:
+                        test_inputs, paths, tam = dataset.all_test_batches()
+                        for i in range(tam+1):
+                            batch = test_inputs[BATCH_SIZE*i:BATCH_SIZE*(i+1)]
+                            p = paths[BATCH_SIZE*i:BATCH_SIZE*(i+1)]
+                            batch = np.multiply(batch, 1.0/255)
+                            image = sess.run([network.final_result], feed_dict={network.inputs: np.reshape(batch ,[-1, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1])})
+                            image = np.array(image[0])
+                            for j in range(image.shape[0]):
+                                save_image = np.resize(image[j], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
+                                fig = plt.figure(frameon=False, dpi=100)
+                                fig.set_size_inches(network.IMAGE_HEIGHT/100, network.IMAGE_WIDTH/100)
+                                ax = plt.Axes(fig, [0., 0., 1., 1.])
+                                ax.set_axis_off()
+                                fig.add_axes(ax)
+                                ax.imshow(save_image, cmap="gray")
+                                separated = p[j].split('/')
+                                fig.savefig("result/{}/{}".format(separated[0],separated[2]))
+                                print("input", separated[2], "saved")
+                                plt.close(fig)
+                                del fig
+                                gc.collect()
+                        print("All Test inputs exported")
+
+                        test_inputs, paths, tam = dataset.all_test_batches(mode="targets")
+                        for i in range(tam+1):
+                            batch = test_inputs[BATCH_SIZE*i:BATCH_SIZE*(i+1)]
+                            p = paths[BATCH_SIZE*i:BATCH_SIZE*(i+1)]
+                            batch = np.multiply(batch, 1.0/255)
+                            image = sess.run([network.final_result], feed_dict={network.inputs: np.reshape(batch ,[-1, network.IMAGE_HEIGHT, network.IMAGE_WIDTH, 1])})
+                            image = np.array(image[0])
+                            for j in range(image.shape[0]):
+                                save_image = np.resize(image[j], [network.IMAGE_HEIGHT, network.IMAGE_WIDTH])
+                                fig = plt.figure(frameon=False, dpi=100)
+                                fig.set_size_inches(network.IMAGE_HEIGHT/100, network.IMAGE_WIDTH/100)
+                                ax = plt.Axes(fig, [0., 0., 1., 1.])
+                                ax.set_axis_off()
+                                fig.add_axes(ax)
+                                ax.imshow(save_image, cmap="gray")
+                                separated = p[j].split('/')
+                                fig.savefig("result/targets/{}".format(separated[2]))
+                                print("target", separated[2], "saved")
+                                plt.close(fig)
+                                del fig
+                                gc.collect()
+                        print("All Test targets exported")
+
+                    '''if ((mse < 5000 and batch_num > 10000 and mse <= (min_mse[0]+1)) or (batch_num > 40000)):
                         print("saving model...")
                         minimal_graph = convert_variables_to_constants(sess, sess.graph_def, ["output"])
 
@@ -401,8 +451,7 @@ def train():
                         clear_devices = False
 
                         fg.freeze_graph(input_graph_path, input_saver_def_path,input_binary, input_checkpoint_path,
-                                        output_node_names, restore_op_name,filename_tensor_name, output_graph_path,clear_devices, False)
-
+				output_node_names, restore_op_name,filename_tensor_name, output_graph_path,clear_devices, False)'''
 
 if __name__ == '__main__':
     train()

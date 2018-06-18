@@ -10,8 +10,8 @@ legend("bottomright", inset=.05, cex = 0.85, c("Raw Images","Net-Removed Images"
 cnn = FALSE
 eigen = FALSE
 fisher = FALSE
-lbph = FALSE
-hog = TRUE
+lbph = TRUE
+hog = FALSE
 
 if(cnn){
 	#CNN

@@ -41,8 +41,8 @@ PointCloud<PointXYZRGBA>::Ptr deprojection(Mat depth, PointCloud<PointXYZRGBA>::
 			int d = depth.at<uchar>(j,i);
 			if(d > 25){
 				PointXYZRGBA p1;
-				p1.x = ((i - 10)*(minX-maxX))/(width-10-10) + maxX;
-				p1.y = ((j - 10)*(minY-maxY))/(height-10-10) + maxY;
+				p1.x = ((i - 10)*(minX-maxX))/(width) + maxX;
+				p1.y = ((j - 10)*(minY-maxY))/(height) + maxY;
 				float f = (d - 127)/3.0;
 				p1.z = f;
 				p1.r = 255;

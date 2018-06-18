@@ -10,7 +10,6 @@
 #include <boost/progress.hpp>
 
 #include <iostream>
-#include <cstdio>
 #include <fstream>
 #include <sstream>
 #include <dirent.h>
@@ -28,6 +27,10 @@ using namespace std;
 struct item{
 	string label;
 	double distance;
+
+	bool operator < (const item& str) const{
+	        return (distance < str.distance);
+    	}
 };
 
 struct model{
@@ -85,7 +88,7 @@ vector<string> loadDataset(string p){
 	return path;
 }
 
-void lbphRecog(string path_gt, string path_img, string label){
+string lbphRecog(string path_gt, string path_img, int result_method = 0){
 	/*
 	Computar Reconhecimento via LBPH, implementação OpenCV
 	Input: Path_gt = imagens de treino; Path_img = imagens de teste;
@@ -99,48 +102,94 @@ void lbphRecog(string path_gt, string path_img, string label){
 	sort(paths_out.begin(), paths_out.end());
 	vector<Mat> images, imagesn(paths_in.size());
 	vector<int> labels;
-	vector<int> c_labels(100);
 	for(int i = 0; i < paths_in.size(); i++){
 		int id = stoi(paths_in[i].substr(0,3));
-		if(c_labels[id] > 1)
-			continue;
 		images.push_back(imread(path_gt+paths_in[i]+".png", 0));
 		labels.push_back(id);
-		c_labels[id]++;
 	}
 
 	Ptr<LBPHFaceRecognizer> model = createLBPHFaceRecognizer();
 	model->train(images, labels);
+
+	vector<int> rankn(labels.size());
+	int id = 0;
 	
 	cout << "LBPH Computation" << endl;
-	remove(("matchs/genuine_lbph_"+label+".txt").c_str());
-	remove(("matchs/impostor_lbph_"+label+".txt").c_str());
 	boost::progress_display show_progress(paths_out.size());
 	vector<vector< pair<int, double> > > pares_acc;
+	double max_val = 0, min_val = 100000;
 	for(int i = 0; i < paths_out.size(); i++){
 		bool find = false;
 		int j = 0, img_id;
 		Mat img = imread(path_img+paths_out[i]+".png", 0);
 		Ptr<StandardCollector> collector = StandardCollector::create();
 		model->predict( img, collector );
-		vector< pair<int, double> > pares = collector->getResults();
-		//Escrever arquivo
-		ofstream gen("matchs/genuine_lbph_"+label+".txt", ios::app), imp("matchs/impostor_lbph_"+label+".txt", ios::app);
-		if(gen.is_open() && imp.is_open()){
-			for(int x = 0; x < pares.size(); x++){
-				if(stoi(paths_out[i].substr(0,3)) == pares[x].first)
-					gen << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
-				else
-					imp << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
+		vector< pair<int, double> > pares = collector->getResults();		
+
+		if(result_method == 0){
+			for(int x = 0; x < pares.size()-1; x++){
+				for(int y = x; y < pares.size(); y++){
+					if(pares[x].second > pares[y].second){
+						pair<int, double> t = pares[x];
+						pares[x] = pares[y];
+						pares[y] = t;
+					}
+				}
 			}
-			gen.close();
-			imp.close();
-		}	
+			find = false;
+			j = 0;
+			img_id = stoi(paths_out[i].substr(0,3));
+			do{
+				if(img_id == pares[j].first){
+					find = true;
+					rankn[j]++;
+				} else {
+					j++;
+				}
+			} while(!find || j == rankn.size());
+		}
 		++show_progress;
+	}
+
+	stringstream ret;
+	if (result_method == 0){
+		int acc = 0;
+		for(int i = 0; i < rankn.size(); i++){
+			acc += rankn[i];
+			ret << acc;
+			if(i < rankn.size() - 1)
+				ret << ",";
+		}
+		return ret.str();
 	}
 }
 
-void eigenRecog(string path_gt, string path_img, string label){
+Mat asRowMatrix(const vector<Mat>& src, int rtype, double alpha = 1, double beta = 0) {
+    size_t n = src.size();
+    if(n == 0)
+        return Mat();
+    size_t d = src[0].total();
+    Mat data(n, d, rtype);
+    for(int i = 0; i < n; i++) {
+        if(src[i].empty()) {
+            string error_message = format("Image number %d was empty, please check your input data.", i);
+            CV_Error(CV_StsBadArg, error_message);
+        }
+        if(src[i].total() != d) {
+            string error_message = format("Wrong number of elements in matrix #%d! Expected %d was %d.", i, d, src[i].total());
+            CV_Error(CV_StsBadArg, error_message);
+        }
+        Mat xi = data.row(i);
+        if(src[i].isContinuous()) {
+            src[i].reshape(1, 1).convertTo(xi, rtype, alpha, beta);
+        } else {
+            src[i].clone().reshape(1, 1).convertTo(xi, rtype, alpha, beta);
+        }
+    }
+    return data;
+}
+
+string eigenRecog(string path_gt, string path_img, string treino, string treino2 = "", int result_method = 0){
 	/*
 	Computar Reconhecimento via EigenFaces, implementação OpenCV
 	Input: Path_gt = imagens de treino; Path_img = imagens de teste;
@@ -151,50 +200,91 @@ void eigenRecog(string path_gt, string path_img, string label){
 	sort(paths_in.begin(), paths_in.end());
 	vector<string> paths_out = loadDataset(path_img);
 	sort(paths_out.begin(), paths_out.end());
-	vector<Mat> images, imagesn(paths_in.size());
-	vector<int> labels;
-	vector<int> c_labels(100);
-	for(int i = 0; i < paths_in.size(); i++){
-		int id = stoi(paths_in[i].substr(0,3));
-		if(c_labels[id] > 1)
-			continue;
-		images.push_back(imread(path_gt+paths_in[i]+".png", 0));
-		labels.push_back(id);
-		c_labels[id]++;
+	vector<string> path_train = loadDataset(treino);
+	int tam_treino = path_train.size();
+	if(treino2 != ""){
+		vector<string> tmp = loadDataset(treino2);
+		path_train.insert(path_train.end(), tmp.begin(), tmp.end());
+	}
+	vector<Mat> images;
+	for(int i = 0; i < path_train.size(); i++){
+		int id = stoi(path_train[i].substr(0,3));
+		if(i < tam_treino){
+			images.push_back(imread(treino+path_train[i]+".png", 0));
+		} else {
+			images.push_back(imread(treino2+path_train[i]+".png", 0));
+		}		
 	}
 
-	Ptr<BasicFaceRecognizer> model = createEigenFaceRecognizer();
-	model->train(images, labels);
-	
-	cout << "EigenFaces Computation" << endl;
-	remove(("matchs/genuine_eigen_"+label+".txt").c_str());
-	remove(("matchs/impostor_eigen_"+label+".txt").c_str());
+	//Montando modelo
+	Mat data = asRowMatrix(images, CV_32FC1);
+	PCA pca(data, Mat(), CV_PCA_DATA_AS_ROW, 20);
+
+	//Projetando as imagens de treino
+	vector<int> rankn(paths_in.size());
+	vector<Mat> img_treino;
+	vector<string> labels;
+	for(int i = 0; i < paths_in.size(); i++){
+		img_treino.push_back(imread(path_gt+paths_in[i]+".png", 0));
+		labels.push_back(paths_in[i].substr(0,3));
+	}
+	Mat groundtruth = asRowMatrix(img_treino, CV_32FC1);
+	Mat gt_projetado = pca.project(groundtruth);
+
+	//Projetando imagens de teste
+	cout << "PCA Computation" << endl;
 	boost::progress_display show_progress(paths_out.size());
-	vector<vector< pair<int, double> > > pares_acc;
+	double max_val = 0, min_val = 100000;
 	for(int i = 0; i < paths_out.size(); i++){
-		bool find = false;
 		int j = 0, img_id;
 		Mat img = imread(path_img+paths_out[i]+".png", 0);
-		Ptr<StandardCollector> collector = StandardCollector::create();
-		model->predict( img, collector );
-		vector< pair<int, double> > pares = collector->getResults();
-		//Escrever arquivo
-		ofstream gen("matchs/genuine_eigen_"+label+".txt", ios::app), imp("matchs/impostor_eigen_"+label+".txt", ios::app);
-		if(gen.is_open() && imp.is_open()){
-			for(int x = 0; x < pares.size(); x++){
-				if(stoi(paths_out[i].substr(0,3)) == pares[x].first)
-					gen << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
-				else
-					imp << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
+		Mat img_row;
+		if(img.isContinuous()) {
+        	    img.reshape(1, 1).convertTo(img_row, CV_32FC1, 1, 0);
+	        } else {
+        	    img.clone().reshape(1, 1).convertTo(img_row, CV_32FC1, 1, 0);
+	        }
+		Mat projetada = pca.project(img_row);
+		if(result_method == 0){
+			vector<item> distancias(gt_projetado.rows);
+			for(int j = 0; j < gt_projetado.rows; j++){
+				Mat s = gt_projetado.row(j);
+				double dist = norm(s,projetada,NORM_L2);
+				item it;
+				it.label = labels[j];
+				it.distance = dist;
+				distancias[j] = it;
 			}
-			gen.close();
-			imp.close();
+
+			sort(distancias.begin(), distancias.end());
+			string img_id = paths_out[i].substr(0,3);
+			int j = 0;
+			for(item it: distancias){
+				if(img_id == it.label){
+					rankn[j]++;
+					break;
+				} else {
+					j++;
+				}
+			}
 		}
 		++show_progress;
 	}
+
+	stringstream ret;
+	if (result_method == 0){
+		int acc = 0;
+		for(int i = 0; i < rankn.size(); i++){
+			acc += rankn[i];
+			ret << acc;
+			if(i < rankn.size() - 1)
+				ret << ",";
+		}
+		return ret.str();
+	}
 }
 
-void fisherRecog(string path_gt, string path_img, string label){
+string fisherRecog(string path_gt, string path_img, string treino, string treino2 = "", int result_method = 0){
 	/*
 	Computar Reconhecimento via FisherFaces, implementação OpenCV
 	Input: Path_gt = imagens de treino; Path_img = imagens de teste;
@@ -206,50 +296,108 @@ void fisherRecog(string path_gt, string path_img, string label){
 	sort(paths_in.begin(), paths_in.end());
 	vector<string> paths_out = loadDataset(path_img);
 	sort(paths_out.begin(), paths_out.end());
-	vector<Mat> images, imagesn(paths_in.size());
-	vector<int> labels;
-	vector<int> c_labels(100);
-	for(int i = 0; i < paths_in.size(); i++){
-		int id = stoi(paths_in[i].substr(0,3));
-		if(c_labels[id] > 1)
-			continue;
-		images.push_back(imread(path_gt+paths_in[i]+".png", 0));
-		labels.push_back(id);
-		c_labels[id]++;
+	vector<string> path_train = loadDataset(treino);
+	int tam_treino = path_train.size();
+	if(treino2 != ""){
+		vector<string> tmp = loadDataset(treino2);
+		path_train.insert(path_train.end(), tmp.begin(), tmp.end());
+	}
+	vector<Mat> images;
+	vector<int> labels_lda;
+	for(int i = 0; i < path_train.size(); i++){
+		int id = stoi(path_train[i].substr(0,3));
+		if(i < tam_treino){
+			images.push_back(imread(treino+path_train[i]+".png", 0));
+		} else {
+			images.push_back(imread(treino2+path_train[i]+".png", 0));
+		}
+		labels_lda.push_back(id);
 	}
 
+	//Montando modelo
 	Ptr<BasicFaceRecognizer> model = createFisherFaceRecognizer();
-	model->train(images, labels);
-	
+	model->train(images, labels_lda);
+
+	Mat vectors = model->getEigenVectors();
+	Mat values = model->getEigenValues();
+	Mat mean = model->getMean();
+	Mat fishervectors, fishervalues, fishermean;
+	vectors.convertTo(fishervectors, CV_32FC1);
+	values.convertTo(fishervalues, CV_32FC1);
+	mean.convertTo(fishermean, CV_32FC1);
+
+	//Projecao calculada por Proj = (Input - mean) * eigenvectors
+	//Montando Conjunto de treino
+	vector<Mat> images_treino;
+	vector<string> labels_treino;
+	for(int i = 0; i < paths_in.size(); i++){
+		Mat img = imread(path_gt+paths_in[i]+".png", 0);
+		Mat img_row;
+		if(img.isContinuous()) {
+        	    img.reshape(1, 1).convertTo(img_row, CV_32FC1, 1, 0);
+	        } else {
+        	    img.clone().reshape(1, 1).convertTo(img_row, CV_32FC1, 1, 0);
+	        }
+		Mat projecao = (img_row - fishermean) * fishervectors;
+		images_treino.push_back(projecao);
+		labels_treino.push_back(paths_in[i].substr(0,3));
+	}
+
+	vector<int> rankn(labels_treino.size());
+	int id = 0;
+
 	cout << "FisherFaces Computation" << endl;
-	remove(("matchs/genuine_fisher_"+label+".txt").c_str());
-	remove(("matchs/impostor_fisher_"+label+".txt").c_str());
 	boost::progress_display show_progress(paths_out.size());
-	vector<vector< pair<int, double> > > pares_acc;
+	double max_val = 0, min_val = 100000;
 	for(int i = 0; i < paths_out.size(); i++){
-		bool find = false;
-		int j = 0, img_id;
 		Mat img = imread(path_img+paths_out[i]+".png", 0);
-		Ptr<StandardCollector> collector = StandardCollector::create();
-		model->predict( img, collector );
-		vector< pair<int, double> > pares = collector->getResults();
-		//Escrever arquivo
-		ofstream gen("matchs/genuine_fisher_"+label+".txt", ios::app), imp("matchs/impostor_fisher_"+label+".txt", ios::app);
-		if(gen.is_open() && imp.is_open()){
-			for(int x = 0; x < pares.size(); x++){
-				if(stoi(paths_out[i].substr(0,3)) == pares[x].first)
-					gen << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
-				else
-					imp << stoi(paths_out[i].substr(0,3)) << " " << pares[x].first << " " << -1*pares[x].second << endl;
-			}
-			gen.close();
-			imp.close();
+		Mat img_row;
+		if(img.isContinuous()) {
+        	    img.reshape(1, 1).convertTo(img_row, CV_32FC1, 1, 0);
+	        } else {
+        	    img.clone().reshape(1, 1).convertTo(img_row, CV_32FC1, 1, 0);
+	        }
+		Mat projecao = (img_row - fishermean) * fishervectors;
+
+		vector<item> distancias(images_treino.size());
+		for(int j = 0; j < images_treino.size(); j++){
+			Mat s = images_treino[j];
+			double dist = norm(s,projecao,NORM_L2);
+			item it;
+			it.label = labels_treino[j];
+			it.distance = dist;
+			distancias[j] = it;
 		}
+
+		sort(distancias.begin(), distancias.end());
+		string img_id = paths_out[i].substr(0,3);
+		int j = 0;
+		for(item it: distancias){
+			if(img_id == it.label){
+				rankn[j]++;
+				break;
+			} else {
+				j++;
+			}
+		}
+
 		++show_progress;
+	}
+
+	stringstream ret;
+	if (result_method == 0){
+		int acc = 0;
+		for(int i = 0; i < rankn.size(); i++){
+			acc += rankn[i];
+			ret << acc;
+			if(i < rankn.size() - 1)
+				ret << ",";
+		}
+		return ret.str();
 	}
 }
 
-void cnnRecog(string path_gt, string path_img, string label){
+string cnnRecog(string path_gt, string path_img, int result_method = 0){
 	/*
 	Computar Reconhecimento via EigenFaces, implementação DeepGod
 	Input: Path_gt = imagens de treino; Path_img = imagens de teste;
@@ -257,7 +405,6 @@ void cnnRecog(string path_gt, string path_img, string label){
 	Output: Resultados do reconhecimento, para plotar. Rank N ou Curva ROC
 	*/
 	vector<string> paths_in = loadDataset(path_gt);
-	vector<int> ids(100);
 	sort(paths_in.begin(), paths_in.end());
 	vector<string> paths_out = loadDataset(path_img);
 	sort(paths_out.begin(), paths_out.end());
@@ -265,12 +412,10 @@ void cnnRecog(string path_gt, string path_img, string label){
 	Detector face_detector;
 	vector<data> dataset;
 	int detected = 0;
-	Mat modelo = imread(path_gt+"042_000_1557.png");
+	Mat modelo = imread(path_gt+"100_000.png");
 	for(string p:paths_in){
 		Mat input = imread(path_gt+p+".png");
 		int id = stoi(p.substr(0,3));
-		if(ids[id] > 1)
-			continue;
 		int padding = 64;
 		Mat img, model, desc;
 		copyMakeBorder( input, img, padding, padding, padding, padding, BORDER_CONSTANT, Scalar(0,0,0) );
@@ -286,16 +431,15 @@ void cnnRecog(string path_gt, string path_img, string label){
 			data d;
 			d.desc = desc;
 			d.name = p.substr(0,3);
-			ids[id]++;
 			dataset.push_back(d);
 		}
 	}
+	vector<int> rankn(dataset.size());	
 
 	cout << "CNN Computation" << endl;
-	remove(("matchs/genuine_cnn_"+label+".txt").c_str());
-	remove(("matchs/impostor_cnn_"+label+".txt").c_str());
 	boost::progress_display show_progress(paths_out.size());
 	vector<vector<score> > scores_acc;
+	double max_val = 0, min_val = 100000;
 	for(string p:paths_out){
 		Mat output = imread(path_img+p+".png");
 		int padding = 64;
@@ -319,20 +463,33 @@ void cnnRecog(string path_gt, string path_img, string label){
 				s1.value = s;
 				scores.push_back(s1);
 			}
-			//Escrever arquivo
-			ofstream gen("matchs/genuine_cnn_"+label+".txt", ios::app), imp("matchs/impostor_cnn_"+label+".txt", ios::app);
-			if(gen.is_open() && imp.is_open()){
-				for(int x = 0; x < scores.size(); x++){
-					if(p.substr(0,3) == scores[x].name.substr(0,3))
-						gen << stoi(p.substr(0,3)) << " " << stoi(scores[x].name.substr(0,3)) << " " << scores[x].value << endl;
-					else
-						imp << stoi(p.substr(0,3)) << " " << stoi(scores[x].name.substr(0,3)) << " " << scores[x].value << endl;
-				}
-				gen.close();
-				imp.close();
+			if(result_method == 0){
+				sort(scores.begin(), scores.end(), greater<score>());
+				bool find = false;
+				int j = 0;
+				do{
+					if(p.substr(0,3) == scores[j].name.substr(0,3)){
+						find = true;
+						rankn[j]++;
+					} else {
+						j++;
+					}
+				} while(!find || j == rankn.size());
 			}
 		}
 		++show_progress;
+	}
+	
+	stringstream ret;
+	if (result_method == 0){
+		int acc = 0;
+		for(int i = 0; i < rankn.size(); i++){
+			acc += rankn[i];
+			ret << acc;
+			if(i < rankn.size() - 1)
+				ret << ",";
+		}
+		return ret.str();
 	}
 }
 
@@ -484,12 +641,9 @@ vector<model> trainHOGModel(string path){
 	string pat = path+"/";
 	sort(files.begin(), files.end());
 	vector<model> ret;
-	vector<int> ids(100);
 
 	for (int i = 0; i < files.size(); i++){
 		int id = stoi(files[i].substr(0,3));
-		if(ids[id] > 1)
-			continue;
 		string complete = pat+files[i]+".png";
 		Mat img;
 		Mat in = imread(complete, IMREAD_GRAYSCALE);
@@ -502,7 +656,6 @@ vector<model> trainHOGModel(string path){
 		model m;
 		m.hog = hogFeature;
 		m.label = files[i].substr(0,3);
-		ids[id]++;
 		ret.push_back(m);
 	}
 	
@@ -539,7 +692,7 @@ vector<item> predictHOG(Mat img, vector<model> model){
 	return itens;
 }
 
-void hogRecog(string path_gt, string path_img, string label){
+string hogRecog(string path_gt, string path_img, int result_method = 0){
 	/*
 	Computar Reconhecimento via EigenFaces, implementação com OpenCV
 	Input: Path_gt = imagens de treino; Path_img = imagens de teste;
@@ -549,9 +702,9 @@ void hogRecog(string path_gt, string path_img, string label){
 	vector<model> modelo = trainHOGModel(path_gt);	
 	vector<string> path = loadDataset(path_img);
 
+	vector<int> rankn(modelo.size());
+
 	cout << "HoG Computation" << endl;
-	remove(("matchs/genuine_hog_"+label+".txt").c_str());
-	remove(("matchs/impostor_hog_"+label+".txt").c_str());
 	boost::progress_display show_progress(path.size());
 	int c = 0, gen_size = 0, imp_size = 0;
 	vector<vector<item> > pred_acc;
@@ -563,28 +716,40 @@ void hogRecog(string path_gt, string path_img, string label){
 		int j;
 		in.convertTo(img, CV_32F);
 		vector<item> predicao = predictHOG(img/255.0, modelo);
-		//Escrever arquivo
-		ofstream gen("matchs/genuine_hog_"+label+".txt", ios::app), imp("matchs/impostor_hog_"+label+".txt", ios::app);
-		if(gen.is_open() && imp.is_open()){
-			for(int x = 0; x < predicao.size(); x++){
-				if(path[i].substr(0,3) == predicao[x].label)
-					gen << stoi(path[i].substr(0,3)) << " " << stoi(predicao[x].label) << " " << predicao[x].distance << endl;
-				else
-					imp << stoi(path[i].substr(0,3)) << " " << stoi(predicao[x].label) << " " << predicao[x].distance << endl;
+		if(result_method == 0){
+			for(int j = 0; j < predicao.size(); j++){
+				if(find)
+					continue;
+				if(path[i].substr(0,3) == predicao[j].label){
+					find = true;
+					rankn[j]++;
+				}			
 			}
-			gen.close();
-			imp.close();
-		}	
+		} 	
 		++show_progress;
+	}
+
+	stringstream ret;
+	if (result_method == 0){
+		int acc = 0;
+		for(int i = 0; i < rankn.size(); i++){
+			acc += rankn[i];
+			ret << acc;
+			if(i < rankn.size() - 1)
+				ret << ",";
+		}
+		return ret.str();
 	}
 }
 
 int main(int argc, char * argv[]){
-	string path_neutra = "../history/enc-3fc-dec-new/";
-	string path_gt = "../groundtruth/new/";
-	string path_gtrede = "../gt_rede/new/";
-	string expressas = "../expressional/new/";
+	string path_neutra = "../history/with_recog/";
+	string path_gt = "../groundtruth/with_recog/";
+	string path_gtrede = "../gt_rede/with_recog/";
+	string expressas = "../expressional/with_recog/";
 	string exp_rede = "../export/";
+	string path_lda = "../../../dataset_reduce/reduce/depth/neutral/";
+	string path_pca = "../../../dataset_reduce/reduce/depth/non_neutral/";
 
 	string groundtruth, faces;
 	string label = "rede";
@@ -599,11 +764,28 @@ int main(int argc, char * argv[]){
 		cout << "Processando Faces Expressas" << endl;
 	}
 
-	lbphRecog(groundtruth, faces, label);
-	eigenRecog(groundtruth, faces, label);
-	fisherRecog(groundtruth, faces, label);
-	hogRecog(groundtruth, faces, label);
-	cnnRecog(groundtruth, faces, label);
+	//Rank N
+	int limit_n = 16;
+	vector<string> n;
+	stringstream count_n;
+	for(int i = 0; i < limit_n; i++){
+		count_n << i;
+		if(i < limit_n - 1)
+			count_n << ",";
+	}
+	n.push_back(count_n.str());
+
+	//n.push_back(lbphRecog(groundtruth, faces));
+	//n.push_back(eigenRecog(groundtruth, faces, path_lda));
+	//n.push_back(eigenRecog(groundtruth, faces, path_lda, path_pca));
+	n.push_back(fisherRecog(groundtruth, faces, path_lda));
+	n.push_back(fisherRecog(groundtruth, faces, path_lda, path_pca));
+	n.push_back(hogRecog(groundtruth, faces));
+	n.push_back(cnnRecog(groundtruth, faces));
+
+	cout << "CSV Rank N" << endl;
+	for(string s:n)
+		cout << s << endl;
 
 	return 0;
 }

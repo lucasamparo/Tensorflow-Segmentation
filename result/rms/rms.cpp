@@ -88,7 +88,7 @@ void processRMS(string path_gt, string path_exp, string label){
 	vector<double> rms;
 
 	for(int i = 0; i < express.size(); i++){
-		string p = express[i];
+		string p = express[i].substr(0,3)+"_000";
 		Mat a = imread(path_gt+"/"+p+".png");
 		Mat b = imread(path_exp+"/"+express[i]+".png");
 		double val = computeRMS(a,b);
@@ -147,14 +147,14 @@ void processMSSIM(string path_gt, string path_exp, string label){
 }
 
 int main(){	
-	processRMS("../gt_rede/new/", "../history/enc-3fc-dec-new/", "Faces da Rede");
-	processRMS("../groundtruth/new/", "../expressional/new/", "Faces sem Rede");
+	processRMS("../gt_rede/with_recog", "../history/with_recog", "Faces da Rede");
+	processRMS("../groundtruth/with_recog", "../expressional/with_recog", "Faces sem Rede");
 
-	processMSSIM("../gt_rede/new/", "../history/enc-3fc-dec-new/", "Faces da Rede");
-	processMSSIM("../groundtruth/new/", "../expressional/new/", "Faces sem Rede");
+	processMSSIM("../gt_rede/with_recog/", "../history/with_recog/", "Faces da Rede");
+	processMSSIM("../groundtruth/with_recog/", "../expressional/with_recog/", "Faces sem Rede");
 	
-	processRMS("../groundtruth/new", "../history/enc-3fc-dec-new", "Remoção da Rede x Neutras Sem rede");
-	processMSSIM("../groundtruth/new", "../history/enc-3fc-dec-new", "Remoção da Rede x Neutras Sem rede");
+	processRMS("../groundtruth/with_recog", "../history/with_recog", "Remoção da Rede x Neutras Sem rede");
+	processMSSIM("../groundtruth/with_recog", "../history/with_recog", "Remoção da Rede x Neutras Sem rede");
 
 	return 0;	
 }

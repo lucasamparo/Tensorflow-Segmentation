@@ -19,7 +19,7 @@ class Conv2d(Layer):
     def reverse_global_variables():
         Conv2d.layer_index = 0
 
-    def create_layer(self, input):
+    def create_layer(self, input, is_training=True):
         self.input_shape = utils.get_incoming_shape(input)
         number_of_input_channels = self.input_shape[3]
 
@@ -32,13 +32,13 @@ class Conv2d(Layer):
 
         output = tf.nn.conv2d(input, W, strides=self.strides, padding='SAME')
 
-        output = lrelu(tf.add(tf.contrib.layers.batch_norm(output, scope="norm{}".format(self.name)), b))
+        #output = lrelu(tf.add(tf.contrib.layers.batch_norm(output, scope="norm{}".format(self.name), is_training=is_training), b))
+        output = lrelu(tf.add(output, b))
         return output
 
-    def create_layer_reversed(self, input, prev_layer=None, last_layer=False):
+    def create_layer_reversed(self, input, prev_layer=None, last_layer=False, is_training=True):
         with tf.variable_scope('conv', reuse=tf.AUTO_REUSE):
-            W = tf.get_variable('W{}'.format(self.name)) 
-            #W = tf.get_variable('W{}'.format(self.name), shape=tW.get_shape())
+            W = tf.get_variable('W{}'.format(self.name))
             b = tf.Variable(tf.zeros([W.get_shape().as_list()[2]]))
 
         output = tf.nn.conv2d_transpose(
@@ -49,9 +49,11 @@ class Conv2d(Layer):
         output.set_shape([None, self.input_shape[1], self.input_shape[2], self.input_shape[3]])
 
         if last_layer:
-            output = tf.add(tf.contrib.layers.batch_norm(output), b, name="output")
+            #output = tf.add(tf.contrib.layers.batch_norm(output, scope="tnorm{}".format(self.name), is_training=is_training), b, name="output")
+            output = tf.add(output, b, name="output")
         else:
-            output = lrelu(tf.add(tf.contrib.layers.batch_norm(output), b))
+            #output = lrelu(tf.add(tf.contrib.layers.batch_norm(output, scope="tnorm{}".format(self.name), is_training=is_training), b))
+            output = lrelu(tf.add(output, b))
 
         return output
 

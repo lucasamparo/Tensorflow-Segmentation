@@ -18,7 +18,7 @@ from six import iteritems
 from recog_model import inception_resnet_v1 as model
 from cv2 import imread
 
-def load_model(model):
+def load_model(sess, model):
     # Check if the model is a model directory (containing a metagraph and a checkpoint file)
     #  or if it is a protobuf file with a frozen graph
     model_exp = os.path.expanduser(model)
@@ -36,7 +36,7 @@ def load_model(model):
         print('Checkpoint file: %s' % ckpt_file)
       
         saver = tf.train.import_meta_graph(os.path.join(model_exp, meta_file))
-        saver.restore(tf.get_default_session(), os.path.join(model_exp, ckpt_file))
+        saver.restore(sess, os.path.join(model_exp, ckpt_file))
     
 def get_model_filenames(model_dir):
     files = os.listdir(model_dir)
